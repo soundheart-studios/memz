@@ -112,7 +112,12 @@ fn sdk_cli_and_mcp_share_receipts_scope_errors_and_budgets() {
         .unwrap()["validated"],
         true
     );
+    // The daemon's background maintenance may obsolete the superseded revision's
+    // job at any moment; settle that cleanup first so the three status reads
+    // compare adapters rather than background timing.
+    dispatch(&state, &client, &json!({"op":"maintain"})).unwrap();
     let health = dispatch(&state, &client, &json!({"op":"status"})).unwrap();
+    assert_eq!(health["pending_jobs"], 1);
     assert_eq!(health, cli(&state, &path, "call", &json!({"op":"status"})));
     let mcp_health = cli(
         &state,
