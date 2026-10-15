@@ -792,7 +792,7 @@ dependencies = [
 
 [[package]]
 name = "memz"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "candle-core",
  "candle-nn",
@@ -808,7 +808,7 @@ dependencies = [
 
 [[package]]
 name = "memz-qa"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "libc",
  "memz",
