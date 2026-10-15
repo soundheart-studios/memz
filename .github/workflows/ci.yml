@@ -41,7 +41,8 @@ jobs:
           - { name: macos-aarch64, os: macos-latest, peer: "0" }
     runs-on: ${{ matrix.os }}
     env:
-      PW_RUN_ID: ci-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.name }}
+      # The fixture accepts only [A-Za-z0-9-]; matrix names contain underscores.
+      PW_RUN_ID: ci-${{ github.run_id }}-${{ github.run_attempt }}-${{ strategy.job-index }}
     steps:
       - uses: actions/checkout@v4
       - run: rustup toolchain install
