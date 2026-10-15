@@ -98,6 +98,11 @@ fn generations_are_separate_and_obsolete_vectors_are_removed() {
     );
     correct(&cat, &cap, &mut store, &r.id, 1, "replacement").unwrap();
     assert_eq!(vector::count(&store, &g).unwrap(), 0);
+    // The correction's job is claimable from its own (possibly later) second.
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64;
     let job = jobs::claim(&cat, &mut store, now, 30, false)
         .unwrap()
         .unwrap();

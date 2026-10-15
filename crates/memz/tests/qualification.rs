@@ -69,6 +69,12 @@ fn correction_and_revocation_during_export_and_worker_publication_are_authoritat
     let fresh = cache.recall(&cat, &cap, &mut db, &q).unwrap();
     assert_eq!(fresh.items[0].content, "release new-value");
     assert!(fresh.mutation_seq >= corrected.mutation_seq);
+    // The correction's job becomes claimable at its own timestamp, which can be
+    // a later second than `now` on a slow runner; read the clock again.
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64;
     let lease = jobs::claim(&cat, &mut db, now, 30, false).unwrap().unwrap();
     cat.revoke("u", &ns).unwrap();
     assert!(cache.recall(&cat, &cap, &mut db, &q).is_err());
