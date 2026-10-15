@@ -52,34 +52,51 @@ Runs on macOS (arm64, x86_64) and Linux (x86_64, arm64 ARMv8.2+); Windows runs i
 ```sh
 git clone https://github.com/soundheart-studios/memz.git && cd memz
 cargo build --release --locked -p memz
-export PATH="$PWD/target/release:$PATH"
+install -m 755 target/release/memz ~/.local/bin/memz   # any directory on PATH
 
 cd /path/to/your/project
-memz init          # registers the project, prints a private client file
-memz serve         # run the daemon (separate terminal; Ctrl-C to stop)
+memz init
 ```
+
+That's the whole setup. Open Claude Code or Codex in the project and the `memz`
+tools are there. The first tool call starts the daemon in the background.
 
 Or download a prebuilt archive for macOS or Linux from
 [Releases](https://github.com/soundheart-studios/memz/releases). Each archive has
 the `memz` binary, licenses, README and the agent skill; check it against
 `SHA256SUMS`.
 
-`memz init` with no arguments uses the enclosing git work tree (or the current
-directory) as the project, your OS user as the principal, and a freshly generated
-private session. It prints what it chose:
+### What `memz init` does
 
-```json
-{"client_file":"~/.memz/run/client-….json","namespace":"n_…","principal":"you","root":"/path/to/your/project","session":"s_…"}
-```
+1. **Registers the project.** It uses the enclosing git work tree (or the current
+   directory), your OS user as principal and a fresh private session, and issues a
+   client file under `~/.memz/run/` (mode 0600; it holds a secret token).
+2. **Connects Claude Code.** It merges a `memz` stdio server into the project's
+   `.mcp.json` and pre-approves it in `.claude/settings.local.json`. Other
+   servers and settings are kept.
+3. **Connects Codex.** It writes a managed `[mcp_servers.memz]` block in the
+   project's `.codex/config.toml`. The rest of the file is untouched, and re-running
+   `init` replaces the block instead of duplicating it.
+4. **Installs the memory skill** into `.claude/skills/memz/` and
+   `.agents/skills/memz/`. Existing copies you edited are left alone.
+5. **Keeps machine paths out of git.** When those config files aren't tracked, it
+   adds them to `.git/info/exclude`. If one is tracked, `init` warns instead.
 
-The general form is `memz init [ROOT [PRINCIPAL [SESSION]]]`. Client files are
-secrets (mode 0600), and the daemon reads them at startup, so **restart
-`memz serve` after creating or removing a client**.
+It prints a JSON report of every file it created, updated or left alone. Use
+`memz init --no-agents` to only issue a client, or
+`memz init [ROOT [PRINCIPAL [SESSION]]]` to choose explicitly. Restart an agent
+that was already open so it loads the new server.
+
+You never have to manage the daemon. `memz mcp` and `memz call` start
+`memz serve` in the background if it isn't running (logging to
+`~/.memz/run/serve.log`), and a running daemon admits clients issued after it
+started. Run `memz serve` yourself only to pick its environment, e.g.
+`MEMZ_MODEL_DIR` for [semantic recall](#semantic-recall-recommended).
 
 Try it from the shell, one JSON request per line:
 
 ```sh
-CLIENT=~/.memz/run/client-….json
+CLIENT=~/.memz/run/client-….json   # "client_file" from the init report
 printf '%s\n' \
   '{"op":"remember","request_id":"decision:deploy-window","text":"Deploys happen on Tuesdays because Monday has the release freeze.","kind":"decision"}' \
   '{"op":"recall","query":"deploy window","budget":1500}' \
@@ -88,25 +105,10 @@ printf '%s\n' \
 
 ## Connect an agent
 
-Memz is a stdio MCP server (protocol `2025-11-25`). The daemon must already be
-running.
-
-**Claude Code**
-
-```sh
-claude mcp add memz -- /abs/path/to/memz mcp --client /abs/path/to/client.json
-```
-
-**Codex** (`~/.codex/config.toml`)
-
-```toml
-[mcp_servers.memz]
-command = "/abs/path/to/memz"
-args = ["mcp", "--client", "/abs/path/to/client.json"]
-```
-
-Any other stdio MCP host works the same way. Set `MEMZ_HOME` in the server's
-environment only if you use a non-default state directory.
+`memz init` does this for Claude Code and Codex. Memz is a stdio MCP server
+(protocol `2025-11-25`), so any other host works with command `memz` and args
+`mcp --client <client_file>`. Set `MEMZ_HOME` in the server's environment only
+for a non-default state directory.
 
 ### Windows (WSL2)
 
@@ -118,20 +120,19 @@ wsl --install            # once, then open the Ubuntu shell
 ```
 
 Inside WSL, build Memz as in the [quick start](#quick-start) or unpack the
-`x86_64-unknown-linux-gnu` release archive. Then run `memz init` and `memz serve`
+`x86_64-unknown-linux-gnu` release archive. Then run `memz init` in the project
 as usual. Two rules:
 
 - **Keep state on the Linux filesystem.** The default `~/.memz` inside WSL is
   right. Don't point `MEMZ_HOME` at `/mnt/c/...`: Windows drives don't keep the
   Unix permissions Memz checks, so it will refuse that state directory.
 - **Run the agent inside WSL too** (Claude Code or Codex installed in the WSL
-  shell), using the same MCP setup as above. Projects can live in WSL (fastest)
-  or under `/mnt/c/...`.
+  shell), so the configuration `init` writes applies. Projects can live in WSL
+  (fastest) or under `/mnt/c/...`.
 
 A Windows-native agent may be able to launch the server through `wsl.exe`, e.g.
 command `wsl.exe` with args `-e /home/you/memz/target/release/memz mcp --client
-/home/you/.memz/run/client-….json`. That route is untested; the daemon must
-already be running inside WSL.
+/home/you/.memz/run/client-….json`. That route is untested.
 
 ### Teach the agent when to use memory
 
@@ -146,8 +147,7 @@ The policy in brief: **recall** before related work, keyword-style; **remember**
 only facts that are durable, not derivable from the repo, actionable, and either
 user-stated or verified; **correct** instead of duplicating; **never** store
 secrets; and treat current code and the user's latest instruction as stronger than
-memory. Copy the `memz` skill directory into your own project's `.claude/skills/`
-or `.agents/skills/` to use it there.
+memory. `memz init` installs it into each project it sets up.
 
 ## Operations
 
@@ -230,7 +230,7 @@ false positives and negatives. It is not a general accuracy rate.
 - Large-corpus semantic recall is unqualified. Fully embedded semantic recall was
   tested only on the small fixture.
 - Once 10,000 enrichment jobs are pending, new writes return `busy`.
-- The MCP adapter is stdio-only. The daemon does not start itself.
+- The MCP adapter is stdio-only. The daemon starts on demand but not at login, and it inherits the environment of the client that started it.
 - Windows is supported through [WSL2](#windows-wsl2) only; see the [porting inventory](docs/platforms.md#windows-porting-inventory) for native support.
 - MCP `remember` currently records writes as user-origin. The bundled skill asks
   agents to prefix memories with `User:` or `Verified:` until provenance is

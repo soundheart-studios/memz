@@ -98,6 +98,54 @@ impl Drop for Service {
         self.server.take();
     }
 }
+/// Clients the daemon admits. Client files issued by `init` after startup are
+/// picked up on the first request presenting their token, through the same
+/// `load_client` checks; unknown tokens rescan at most once per second.
+struct Registry {
+    state: StateRoot,
+    clients: std::sync::RwLock<Vec<Client>>,
+    last_scan: std::sync::Mutex<std::time::Instant>,
+}
+impl Registry {
+    fn find(&self, token: &str) -> Option<Client> {
+        let known = |clients: &[Client]| clients.iter().find(|c| c.binding.token == token).cloned();
+        if let Some(client) = known(&self.clients.read().ok()?) {
+            return Some(client);
+        }
+        {
+            let mut last = self.last_scan.lock().ok()?;
+            if last.elapsed() < std::time::Duration::from_secs(1) {
+                return None;
+            }
+            *last = std::time::Instant::now();
+        }
+        let fresh = scan_clients(&self.state, false).ok()?;
+        let found = known(&fresh);
+        *self.clients.write().ok()? = fresh;
+        found
+    }
+    fn snapshot(&self) -> Vec<Client> {
+        self.clients.read().map(|c| c.clone()).unwrap_or_default()
+    }
+}
+/// Loads `run/client-*.json`. At startup any invalid file is fatal; on a live
+/// rescan invalid files are skipped so one bad file cannot lock out the rest.
+fn scan_clients(state: &StateRoot, strict: bool) -> Result<Vec<Client>> {
+    let mut clients = Vec::new();
+    for entry in fs::read_dir(state.path.join("run"))? {
+        let entry = entry?;
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if name.starts_with("client-") && name.ends_with(".json") {
+            match load_client(&entry.path()) {
+                Ok(client) => clients.push(client),
+                Err(e) if strict => return Err(e),
+                Err(_) => {}
+            }
+        }
+    }
+    Ok(clients)
+}
 pub fn serve(state: &StateRoot) -> Result<Service> {
     let extractor = match std::env::var("MEMZ_RELATION_EXTRACTOR").as_deref() {
         Err(_) | Ok("off") => None,
@@ -122,36 +170,41 @@ pub fn serve_configured(
     let background_engine = engine.clone();
     let active = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let foreground = active.clone();
-    let mut clients = Vec::new();
-    for entry in fs::read_dir(state.path.join("run"))? {
-        let entry = entry?;
-        let name = entry.file_name();
-        let name = name.to_string_lossy();
-        if name.starts_with("client-") && name.ends_with(".json") {
-            clients.push(load_client(&entry.path())?);
-        }
-    }
+    let clients = scan_clients(state, true)?;
     if clients.is_empty() {
         return Err(Error::new(
             "configuration",
             "initialize a client before starting daemon",
         ));
     }
-    let bindings = clients.iter().map(|c| c.binding.clone()).collect();
+    let registry = std::sync::Arc::new(Registry {
+        state: state.clone(),
+        clients: std::sync::RwLock::new(clients),
+        last_scan: std::sync::Mutex::new(std::time::Instant::now()),
+    });
+    let lookup_registry = registry.clone();
+    let handler_registry = registry.clone();
+    let maintenance_registry = registry.clone();
     let owned = state.clone();
-    let maintenance_clients = clients.clone();
     let maintenance_state = state.clone();
-    let server = Server::start(state, bindings, Limits::default(), move |binding, value| {
-        let client = clients
-            .iter()
-            .find(|c| c.binding.token == binding.token)
-            .ok_or_else(invalid)?;
-        foreground.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        let result =
-            dispatch_with_engine(&owned, client, &value, engine.as_ref(), extractor.is_some());
-        foreground.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
-        result
-    })?;
+    let server = Server::start_dynamic(
+        state,
+        move |token| lookup_registry.find(token).map(|c| c.binding),
+        Limits::default(),
+        move |binding, value| {
+            let client = handler_registry.find(&binding.token).ok_or_else(invalid)?;
+            foreground.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            let result = dispatch_with_engine(
+                &owned,
+                &client,
+                &value,
+                engine.as_ref(),
+                extractor.is_some(),
+            );
+            foreground.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+            result
+        },
+    )?;
     let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     let stopping = stop.clone();
     let maintenance = std::thread::spawn(move || {
@@ -162,6 +215,7 @@ pub fn serve_configured(
                 break;
             }
             let maintain = last_maintenance.elapsed() >= std::time::Duration::from_secs(30);
+            let maintenance_clients = maintenance_registry.snapshot();
             for client in &maintenance_clients {
                 if stopping.load(std::sync::atomic::Ordering::SeqCst) {
                     break;

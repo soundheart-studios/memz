@@ -13,7 +13,9 @@ WORK=$(mktemp -d "$TMP/mzs.XXXXXX")
 export MEMZ_HOME="$WORK/home"
 PID=
 cleanup() {
-  if [ -n "$PID" ]; then kill "$PID" 2>/dev/null || true; wait "$PID" 2>/dev/null || true; fi
+  # The daemon is started by the first client command; its pid is in serve.log.
+  PID=$(sed -nE 's/^memz ready \(pid ([0-9]+)\)$/\1/p' "$MEMZ_HOME/run/serve.log" 2>/dev/null | tail -1)
+  if [ -n "$PID" ]; then kill "$PID" 2>/dev/null || true; fi
   rm -rf "$WORK"
 }
 trap cleanup EXIT
@@ -30,19 +32,24 @@ CLIENT=$(printf '%s' "$INIT" | sed -E 's/.*"client_file":"([^"]+)".*/\1/')
 [ -f "$CLIENT" ] || fail "client file missing"
 [ "$(stat -c %a "$CLIENT" 2>/dev/null || stat -f %Lp "$CLIENT")" = 600 ] || fail "client file is not 0600"
 
-# 2. Daemon starts and binds its socket.
-"$BIN" serve 2>"$WORK/serve.log" &
-PID=$!
-SOCK="$MEMZ_HOME/run/memz.sock"
-for _ in $(seq 1 100); do [ -S "$SOCK" ] && break; sleep 0.1; done
-[ -S "$SOCK" ] || { cat "$WORK/serve.log"; fail "daemon socket did not appear"; }
+# 2. Init connected Claude Code and Codex in the project and installed the skill.
+grep -q '"memz"' "$WORK/project/.mcp.json" || fail ".mcp.json lacks the memz server"
+grep -q "$CLIENT" "$WORK/project/.mcp.json" || fail ".mcp.json does not use the new client"
+grep -q '^\[mcp_servers.memz\]$' "$WORK/project/.codex/config.toml" || fail "Codex config lacks memz"
+[ -f "$WORK/project/.claude/skills/memz/SKILL.md" ] || fail "Claude skill missing"
+[ -f "$WORK/project/.agents/skills/memz/SKILL.md" ] || fail "Codex skill missing"
+grep -qx '/.mcp.json' "$WORK/project/.git/info/exclude" || fail ".mcp.json not excluded from git"
 
-# 3. CLI remember then recall.
+# 3. No daemon is running: the first client command starts it.
+SOCK="$MEMZ_HOME/run/memz.sock"
+[ -S "$SOCK" ] && fail "daemon socket exists before any client command"
 OUT=$(printf '%s\n' \
   '{"op":"remember","request_id":"smoke:1","text":"Smoke deploys happen on Tuesdays","kind":"decision"}' \
   '{"op":"recall","query":"smoke deploys","budget":1500}' \
   | "$BIN" call --client "$CLIENT")
 case "$OUT" in *"Smoke deploys happen on Tuesdays"*) ;; *) echo "$OUT"; fail "recall did not return the memory";; esac
+
+[ -S "$SOCK" ] || fail "daemon did not start"
 
 # 4. MCP handshake, tool listing and a tool call.
 MCP=$(printf '%s\n' \

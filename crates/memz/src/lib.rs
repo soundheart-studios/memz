@@ -15,6 +15,7 @@ pub mod jobs;
 pub mod lifecycle;
 pub mod providers;
 pub mod retrieval;
+pub mod setup;
 pub mod state;
 pub mod store;
 pub mod vector;

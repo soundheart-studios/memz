@@ -18,7 +18,7 @@ fn main() {
 fn invalid() -> Error {
     Error::new(
         "usage",
-        "memz backup DEST [NAMESPACE] | restore BUNDLE NEW_STATE sqlite|jsonl | relocate NEW_STATE | rebind NAMESPACE ROOT | init [ROOT [PRINCIPAL [SESSION]]] | serve | grant PRINCIPAL NAMESPACE [write] | revoke PRINCIPAL NAMESPACE | call|mcp|capture --client FILE [--include-generated]",
+        "memz backup DEST [NAMESPACE] | restore BUNDLE NEW_STATE sqlite|jsonl | relocate NEW_STATE | rebind NAMESPACE ROOT | init [ROOT [PRINCIPAL [SESSION]]] [--no-agents] | serve | grant PRINCIPAL NAMESPACE [write] | revoke PRINCIPAL NAMESPACE | call|mcp|capture --client FILE [--include-generated]",
     )
 }
 /// The enclosing git work tree, so subdirectories share one namespace;
@@ -59,6 +59,50 @@ fn default_principal() -> Result<String> {
         )
     })
 }
+/// Starts `memz serve` in the background when no daemon answers on the socket,
+/// so agents work right after `init` without a manually started daemon. The
+/// daemon's ownership lock keeps concurrent starts down to one live server.
+fn ensure_daemon(state: &StateRoot) -> Result<()> {
+    use std::os::unix::{fs::OpenOptionsExt, process::CommandExt};
+    let socket = state.path.join("run").join("memz.sock");
+    let up = || std::os::unix::net::UnixStream::connect(&socket).is_ok();
+    if up() {
+        return Ok(());
+    }
+    let log_path = state.path.join("run").join("serve.log");
+    let log = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .mode(0o600)
+        .custom_flags(libc::O_NOFOLLOW)
+        .open(&log_path)?;
+    let mut serve = std::process::Command::new(std::env::current_exe()?);
+    serve
+        .arg("serve")
+        .env("MEMZ_HOME", &state.path)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(log);
+    // SAFETY: setsid is async-signal-safe and only detaches the child from the
+    // caller's session, so the daemon outlives the agent that started it.
+    unsafe {
+        serve.pre_exec(|| {
+            libc::setsid();
+            Ok(())
+        });
+    }
+    serve.spawn()?;
+    for _ in 0..100 {
+        if up() {
+            return Ok(());
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    Err(Error::new(
+        "unavailable",
+        format!("memz daemon did not start; see {}", log_path.display()),
+    ))
+}
 fn run() -> Result<()> {
     let args: Vec<_> = std::env::args().skip(1).collect();
     let command = args.first().ok_or_else(invalid)?;
@@ -78,24 +122,45 @@ fn run() -> Result<()> {
     }
     let state = StateRoot::from_env()?;
     match command.as_str() {
-        "init" if args.len() <= 4 => {
-            let root = match args.get(1) {
+        "init" => {
+            let (flags, positional): (Vec<&String>, Vec<&String>) =
+                args[1..].iter().partition(|a| a.starts_with("--"));
+            if positional.len() > 3 || flags.iter().any(|f| f.as_str() != "--no-agents") {
+                return Err(invalid());
+            }
+            let root = match positional.first() {
                 Some(root) => PathBuf::from(root),
                 None => default_root()?,
             };
-            let principal = match args.get(2) {
-                Some(principal) => principal.clone(),
+            let principal = match positional.get(1) {
+                Some(principal) => principal.to_string(),
                 None => default_principal()?,
             };
-            let session = match args.get(3) {
-                Some(session) => session.clone(),
+            let session = match positional.get(2) {
+                Some(session) => session.to_string(),
                 None => adapters::new_session_id()?,
             };
             let path = adapters::initialize(&state, &root, &principal, &session)?;
             let client = adapters::load_client(&path)?;
+            let root = std::fs::canonicalize(&root)?;
+            let agents = if flags.is_empty() {
+                let executable = std::fs::canonicalize(std::env::current_exe()?)?;
+                let home = std::env::var_os("MEMZ_HOME").map(|_| state.path.clone());
+                let changes = memz::setup::configure_project(
+                    &root,
+                    &memz::setup::Server {
+                        executable: &executable,
+                        client_file: &path,
+                        memz_home: home.as_deref(),
+                    },
+                )?;
+                json!(changes)
+            } else {
+                json!(null)
+            };
             println!(
                 "{}",
-                json!({"client_file":path,"root":std::fs::canonicalize(&root)?,"namespace":client.namespace,"principal":principal,"session":session})
+                json!({"client_file":path,"root":root,"namespace":client.namespace,"principal":principal,"session":session,"agents":agents})
             );
         }
         "backup" if args.len() == 2 || args.len() == 3 => {
@@ -115,7 +180,7 @@ fn run() -> Result<()> {
         }
         "serve" => {
             let _server = adapters::serve(&state)?;
-            eprintln!("memz ready");
+            eprintln!("memz ready (pid {})", std::process::id());
             loop {
                 std::thread::park();
             }
@@ -141,6 +206,9 @@ fn run() -> Result<()> {
                 return Err(invalid());
             }
             let client = adapters::load_client(Path::new(args.get(2).ok_or_else(invalid)?))?;
+            if command != "assert-relation" {
+                ensure_daemon(&state)?;
+            }
             let mut input = io::stdin().lock();
             let mut initialized = false;
             loop {

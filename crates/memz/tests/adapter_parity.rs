@@ -32,6 +32,14 @@ fn cli(state: &StateRoot, client: &std::path::Path, mode: &str, input: &Value) -
     );
     serde_json::from_str(String::from_utf8_lossy(&out.stdout).lines().last().unwrap()).unwrap()
 }
+/// Status minus physical WAL state, which SQLite checkpoints on its own
+/// schedule (e.g. when a connection closes) between otherwise identical reads.
+fn logical(mut status: Value) -> Value {
+    let fields = status.as_object_mut().unwrap();
+    assert!(fields.remove("wal_bytes").unwrap().is_u64());
+    assert!(fields.remove("checkpoint").unwrap().is_string());
+    status
+}
 #[test]
 fn sdk_cli_and_mcp_share_receipts_scope_errors_and_budgets() {
     let f = Fixture::new("adapters");
@@ -116,16 +124,22 @@ fn sdk_cli_and_mcp_share_receipts_scope_errors_and_budgets() {
     // job at any moment; settle that cleanup first so the three status reads
     // compare adapters rather than background timing.
     dispatch(&state, &client, &json!({"op":"maintain"})).unwrap();
-    let health = dispatch(&state, &client, &json!({"op":"status"})).unwrap();
+    let health = logical(dispatch(&state, &client, &json!({"op":"status"})).unwrap());
     assert_eq!(health["pending_jobs"], 1);
-    assert_eq!(health, cli(&state, &path, "call", &json!({"op":"status"})));
+    assert_eq!(
+        health,
+        logical(cli(&state, &path, "call", &json!({"op":"status"})))
+    );
     let mcp_health = cli(
         &state,
         &path,
         "mcp",
         &json!({"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"status","arguments":{}}}),
     );
-    assert_eq!(mcp_health["result"]["structuredContent"], health);
+    assert_eq!(
+        logical(mcp_health["result"]["structuredContent"].clone()),
+        health
+    );
 }
 #[test]
 fn capture_bridge_excludes_generated_events_until_opted_in() {
