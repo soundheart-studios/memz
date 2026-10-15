@@ -5,6 +5,8 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+  # The release workflow runs this same gate before building artifacts.
+  workflow_call:
 
 permissions:
   contents: read

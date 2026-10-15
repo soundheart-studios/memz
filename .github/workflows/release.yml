@@ -1,24 +1,37 @@
 name: Release
 
+# Push a tag matching the workspace version (e.g. v0.1.0) to cut a release:
+# full CI gate -> version check -> four target builds with smoke tests ->
+# published GitHub release with archives and checksums.
 on:
   push:
     tags: ["v*"]
-  workflow_dispatch:
-    inputs:
-      tag:
-        description: "Existing tag to (re)build, e.g. v0.1.0"
-        required: true
 
 permissions:
   contents: read
 
 env:
   CARGO_TERM_COLOR: always
-  TAG: ${{ github.event.inputs.tag || github.ref_name }}
+  TAG: ${{ github.ref_name }}
 
 jobs:
+  ci:
+    name: CI gate
+    uses: ./.github/workflows/ci.yml
+
+  version:
+    name: tag matches Cargo version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compare tag with workspace version
+        run: |
+          VERSION=$(sed -nE 's/^version = "([^"]+)"/\1/p' Cargo.toml | head -1)
+          [ "$TAG" = "v$VERSION" ] || { echo "::error::tag $TAG does not match Cargo.toml version $VERSION"; exit 1; }
+
   build:
     name: build (${{ matrix.target }})
+    needs: [ci, version]
     strategy:
       fail-fast: false
       matrix:
@@ -31,8 +44,6 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: ${{ env.TAG }}
       - run: rustup toolchain install
       - run: rustup target add ${{ matrix.target }}
       - name: Build
@@ -46,7 +57,6 @@ jobs:
             echo "Rosetta unavailable on this runner; built only"
           fi
       - name: Package
-        shell: bash
         run: |
           NAME=memz-${TAG}-${{ matrix.target }}
           mkdir -p "dist/$NAME"
@@ -73,14 +83,16 @@ jobs:
         with:
           path: dist
           merge-multiple: true
-      - name: Create or update release
+      - name: Verify checksums and combine
+        working-directory: dist
+        run: |
+          shasum -a 256 -c ./*.sha256
+          cat ./*.tar.gz.sha256 > SHA256SUMS
+          rm ./*.tar.gz.sha256
+          ls -l
+      - name: Create release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          ls -l dist
-          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release upload "$TAG" dist/* --clobber --repo "$GITHUB_REPOSITORY"
-          else
-            gh release create "$TAG" dist/* --repo "$GITHUB_REPOSITORY" \
-              --title "Memz $TAG" --generate-notes --draft
-          fi
+          gh release create "$TAG" dist/* --repo "$GITHUB_REPOSITORY" \
+            --verify-tag --title "Memz $TAG" --generate-notes

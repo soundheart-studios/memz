@@ -59,6 +59,11 @@ memz init          # registers the project, prints a private client file
 memz serve         # run the daemon (separate terminal; Ctrl-C to stop)
 ```
 
+Or download a prebuilt archive for macOS or Linux from
+[Releases](https://github.com/soundheart-studios/memz/releases). Each archive has
+the `memz` binary, licenses, README and the agent skill; check it against
+`SHA256SUMS`.
+
 `memz init` with no arguments uses the enclosing git work tree (or the current
 directory) as the project, your OS user as the principal, and a freshly generated
 private session. It prints what it chose:

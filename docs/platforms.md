@@ -17,6 +17,15 @@ the MCP handshake, tool listing and tool call. On Linux, `SMOKE_PEER=1` also che
 different OS user holding a valid client token is denied by the socket's peer
 credentials.
 
+## Releases
+
+Pushing a tag that matches the workspace version (`v0.1.0` for `version = "0.1.0"`)
+runs [`release.yml`](../.github/workflows/release.yml). It runs the full CI gate, checks
+the tag against `Cargo.toml`, builds and smoke-tests the four targets above, and publishes
+a GitHub release with one `.tar.gz` per target plus a combined `SHA256SUMS`. A tag
+that doesn't match the version, or any failing gate, stops the release before
+anything is published.
+
 ## Windows via WSL2
 
 Memz runs unchanged inside WSL2, where it is the Linux build with Linux's peer-credential
