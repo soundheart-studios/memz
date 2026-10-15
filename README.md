@@ -47,7 +47,7 @@ model downloads.
 
 ## Quick start
 
-Runs on macOS (arm64, x86_64) and Linux (x86_64, arm64 ARMv8.2+); Windows users can use WSL2. See [platforms](docs/platforms.md). Building needs Rust 1.88+; the repo pins 1.98.0 in `rust-toolchain.toml`. Performance qualification was done on macOS arm64. Tagged releases also publish prebuilt binaries.
+Runs on macOS (arm64, x86_64) and Linux (x86_64, arm64 ARMv8.2+); Windows runs it via [WSL2](#windows-wsl2). See [platforms](docs/platforms.md). Building needs Rust 1.88+; the repo pins 1.98.0 in `rust-toolchain.toml`. Performance qualification was done on macOS arm64. Tagged releases also publish prebuilt binaries.
 
 ```sh
 git clone https://github.com/soundheart-studios/memz.git && cd memz
@@ -102,6 +102,31 @@ args = ["mcp", "--client", "/abs/path/to/client.json"]
 
 Any other stdio MCP host works the same way. Set `MEMZ_HOME` in the server's
 environment only if you use a non-default state directory.
+
+### Windows (WSL2)
+
+Windows runs Memz through [WSL2](https://learn.microsoft.com/windows/wsl/install)
+using the Linux x86_64 build. Native Windows is not supported yet.
+
+```powershell
+wsl --install            # once, then open the Ubuntu shell
+```
+
+Inside WSL, build Memz as in the [quick start](#quick-start) or unpack the
+`x86_64-unknown-linux-gnu` release archive. Then run `memz init` and `memz serve`
+as usual. Two rules:
+
+- **Keep state on the Linux filesystem.** The default `~/.memz` inside WSL is
+  right. Don't point `MEMZ_HOME` at `/mnt/c/...`: Windows drives don't keep the
+  Unix permissions Memz checks, so it will refuse that state directory.
+- **Run the agent inside WSL too** (Claude Code or Codex installed in the WSL
+  shell), using the same MCP setup as above. Projects can live in WSL (fastest)
+  or under `/mnt/c/...`.
+
+A Windows-native agent may be able to launch the server through `wsl.exe`, e.g.
+command `wsl.exe` with args `-e /home/you/memz/target/release/memz mcp --client
+/home/you/.memz/run/client-….json`. That route is untested; the daemon must
+already be running inside WSL.
 
 ### Teach the agent when to use memory
 
@@ -201,7 +226,7 @@ false positives and negatives. It is not a general accuracy rate.
   tested only on the small fixture.
 - Once 10,000 enrichment jobs are pending, new writes return `busy`.
 - The MCP adapter is stdio-only. The daemon does not start itself.
-- Windows is not supported natively; see the [porting inventory](docs/platforms.md#windows-porting-inventory).
+- Windows is supported through [WSL2](#windows-wsl2) only; see the [porting inventory](docs/platforms.md#windows-porting-inventory) for native support.
 - MCP `remember` currently records writes as user-origin. The bundled skill asks
   agents to prefix memories with `User:` or `Verified:` until provenance is
   carried through.

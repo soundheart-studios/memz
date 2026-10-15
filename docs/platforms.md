@@ -6,7 +6,8 @@
 | macOS x86_64 (`x86_64-apple-darwin`) | Supported | build + smoke under Rosetta | yes |
 | Linux x86_64 (`x86_64-unknown-linux-gnu`) | Supported | test + smoke + peer check | yes (glibc 2.35+) |
 | Linux arm64 (`aarch64-unknown-linux-gnu`) | Supported, ARMv8.2-A or newer | test + smoke + peer check | yes (glibc 2.35+) |
-| Windows | Not supported; use WSL2 | none | no |
+| Windows via WSL2 | Supported through the Linux x86_64 build | covered by Linux x86_64 | use the Linux archive |
+| Windows (native) | Not supported | none | no |
 
 Every supported target runs the same test suite, apart from the two retained-evidence
 checks described in [qualification](qualification.md), plus
@@ -15,6 +16,16 @@ checks described in [qualification](qualification.md), plus
 the MCP handshake, tool listing and tool call. On Linux, `SMOKE_PEER=1` also checks that a
 different OS user holding a valid client token is denied by the socket's peer
 credentials.
+
+## Windows via WSL2
+
+Memz runs unchanged inside WSL2, where it is the Linux build with Linux's peer-credential
+and file-permission checks. Keep `MEMZ_HOME` on the WSL Linux filesystem (the default
+`~/.memz`). DrvFs mounts such as `/mnt/c` do not preserve Unix ownership and modes by
+default, so Memz rejects state there. The supported setup runs the agent inside WSL as
+well. Launching `wsl.exe -e …/memz mcp --client …` from a Windows-native MCP host
+should pass stdio through, but CI does not test it. See the
+[README](../README.md#windows-wsl2) for setup.
 
 ## Linux arm64 needs ARMv8.2-A
 
