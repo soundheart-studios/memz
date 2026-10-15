@@ -1,0 +1,393 @@
+{
+  "version": 1,
+  "tables": [
+    {
+      "name": "namespace_meta",
+      "columns": [
+        {
+          "name": "singleton",
+          "type": "INTEGER"
+        },
+        {
+          "name": "mutation_seq",
+          "type": "INTEGER"
+        },
+        {
+          "name": "quota_bytes",
+          "type": "INTEGER"
+        },
+        {
+          "name": "quota_records",
+          "type": "INTEGER"
+        }
+      ],
+      "indexes": []
+    },
+    {
+      "name": "sources",
+      "columns": [
+        {
+          "name": "id",
+          "type": "TEXT"
+        },
+        {
+          "name": "revision",
+          "type": "INTEGER"
+        },
+        {
+          "name": "origin",
+          "type": "TEXT"
+        },
+        {
+          "name": "author",
+          "type": "TEXT"
+        },
+        {
+          "name": "external_ref",
+          "type": "TEXT"
+        },
+        {
+          "name": "text",
+          "type": "TEXT"
+        },
+        {
+          "name": "content_hash",
+          "type": "TEXT"
+        },
+        {
+          "name": "event_at",
+          "type": "INTEGER"
+        },
+        {
+          "name": "ingested_at",
+          "type": "INTEGER"
+        },
+        {
+          "name": "visibility",
+          "type": "TEXT"
+        },
+        {
+          "name": "session_id",
+          "type": "TEXT"
+        },
+        {
+          "name": "status",
+          "type": "TEXT"
+        },
+        {
+          "name": "retention",
+          "type": "TEXT"
+        },
+        {
+          "name": "expires_at",
+          "type": "INTEGER"
+        }
+      ],
+      "indexes": [],
+      "sql_contains": [
+        "PRIMARY KEY(id,revision)",
+        "retention IN ('durable','temporary')"
+      ]
+    },
+    {
+      "name": "items",
+      "columns": [
+        {
+          "name": "id",
+          "type": "TEXT"
+        },
+        {
+          "name": "revision",
+          "type": "INTEGER"
+        },
+        {
+          "name": "kind",
+          "type": "TEXT"
+        },
+        {
+          "name": "content",
+          "type": "TEXT"
+        },
+        {
+          "name": "explicit",
+          "type": "INTEGER"
+        },
+        {
+          "name": "status",
+          "type": "TEXT"
+        },
+        {
+          "name": "source_id",
+          "type": "TEXT"
+        },
+        {
+          "name": "source_revision",
+          "type": "INTEGER"
+        },
+        {
+          "name": "visibility",
+          "type": "TEXT"
+        },
+        {
+          "name": "session_id",
+          "type": "TEXT"
+        },
+        {
+          "name": "valid_from",
+          "type": "INTEGER"
+        },
+        {
+          "name": "valid_to",
+          "type": "INTEGER"
+        },
+        {
+          "name": "slot",
+          "type": "TEXT"
+        }
+      ],
+      "indexes": [
+        "items_one_active",
+        "items_scope_status",
+        "items_source"
+      ],
+      "sql_contains": [
+        "FOREIGN KEY(source_id,source_revision) REFERENCES sources(id,revision)"
+      ]
+    },
+    {
+      "name": "edges",
+      "columns": [
+        {
+          "name": "id",
+          "type": "TEXT"
+        },
+        {
+          "name": "revision",
+          "type": "INTEGER"
+        },
+        {
+          "name": "from_id",
+          "type": "TEXT"
+        },
+        {
+          "name": "from_revision",
+          "type": "INTEGER"
+        },
+        {
+          "name": "to_id",
+          "type": "TEXT"
+        },
+        {
+          "name": "to_revision",
+          "type": "INTEGER"
+        },
+        {
+          "name": "relation",
+          "type": "TEXT"
+        },
+        {
+          "name": "qualifiers",
+          "type": "TEXT"
+        },
+        {
+          "name": "explicit",
+          "type": "INTEGER"
+        },
+        {
+          "name": "status",
+          "type": "TEXT"
+        },
+        {
+          "name": "visibility",
+          "type": "TEXT"
+        },
+        {
+          "name": "session_id",
+          "type": "TEXT"
+        },
+        {
+          "name": "valid_from",
+          "type": "INTEGER"
+        },
+        {
+          "name": "valid_to",
+          "type": "INTEGER"
+        }
+      ],
+      "indexes": [
+        "edges_from",
+        "edges_to"
+      ]
+    },
+    {
+      "name": "evidence",
+      "columns": [
+        {
+          "name": "id",
+          "type": "INTEGER"
+        },
+        {
+          "name": "item_id",
+          "type": "TEXT"
+        },
+        {
+          "name": "item_revision",
+          "type": "INTEGER"
+        },
+        {
+          "name": "edge_id",
+          "type": "TEXT"
+        },
+        {
+          "name": "edge_revision",
+          "type": "INTEGER"
+        },
+        {
+          "name": "source_id",
+          "type": "TEXT"
+        },
+        {
+          "name": "source_revision",
+          "type": "INTEGER"
+        },
+        {
+          "name": "span_start",
+          "type": "INTEGER"
+        },
+        {
+          "name": "span_end",
+          "type": "INTEGER"
+        },
+        {
+          "name": "role",
+          "type": "TEXT"
+        },
+        {
+          "name": "method",
+          "type": "TEXT"
+        },
+        {
+          "name": "method_version",
+          "type": "TEXT"
+        }
+      ],
+      "indexes": [
+        "evidence_source",
+        "evidence_item",
+        "evidence_edge"
+      ]
+    },
+    {
+      "name": "jobs",
+      "columns": [
+        {
+          "name": "id",
+          "type": "TEXT"
+        },
+        {
+          "name": "operation_key",
+          "type": "TEXT"
+        },
+        {
+          "name": "source_id",
+          "type": "TEXT"
+        },
+        {
+          "name": "source_revision",
+          "type": "INTEGER"
+        },
+        {
+          "name": "job_type",
+          "type": "TEXT"
+        },
+        {
+          "name": "version",
+          "type": "INTEGER"
+        },
+        {
+          "name": "state",
+          "type": "TEXT"
+        },
+        {
+          "name": "attempts",
+          "type": "INTEGER"
+        },
+        {
+          "name": "lease_owner",
+          "type": "TEXT"
+        },
+        {
+          "name": "lease_expiry",
+          "type": "INTEGER"
+        },
+        {
+          "name": "next_attempt",
+          "type": "INTEGER"
+        },
+        {
+          "name": "error_code",
+          "type": "TEXT"
+        },
+        {
+          "name": "resource_bytes",
+          "type": "INTEGER"
+        },
+        {
+          "name": "principal",
+          "type": "TEXT"
+        },
+        {
+          "name": "capability_revision",
+          "type": "INTEGER"
+        }
+      ],
+      "indexes": [
+        "jobs_ready"
+      ]
+    },
+    {
+      "name": "operations",
+      "columns": [
+        {
+          "name": "principal",
+          "type": "TEXT"
+        },
+        {
+          "name": "session_id",
+          "type": "TEXT"
+        },
+        {
+          "name": "request_id",
+          "type": "TEXT"
+        },
+        {
+          "name": "payload_digest",
+          "type": "TEXT"
+        },
+        {
+          "name": "result_json",
+          "type": "TEXT"
+        },
+        {
+          "name": "item_id",
+          "type": "TEXT"
+        },
+        {
+          "name": "tombstone",
+          "type": "INTEGER"
+        },
+        {
+          "name": "mutation_seq",
+          "type": "INTEGER"
+        },
+        {
+          "name": "created_at",
+          "type": "INTEGER"
+        }
+      ],
+      "indexes": [
+        "operations_item"
+      ]
+    }
+  ]
+}

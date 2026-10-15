@@ -1,0 +1,50 @@
+{
+  "version": 1,
+  "description": "Held-out synthetic decisions, preferences, incidents, corrections, relations and abstention queries. Version 1 fixed before measurements; no production memory.",
+  "memories": [
+    {"key":"aurora","kind":"decision","text":"Aurora production releases require a rollback rehearsal. Maya owns the release gate."},
+    {"key":"notes","kind":"preference","text":"Meeting notes should be sent as plain text, never as a slide deck."},
+    {"key":"dns","kind":"incident","text":"The June Beacon outage was caused by stale DNS entries. Flushing the resolver cache restored service."},
+    {"key":"color","kind":"preference","text":"The dashboard highlight color is amber.","corrected":"The dashboard highlight color is teal.","slot":"dashboard-color"},
+    {"key":"obsolete","kind":"decision","text":"The retired Atlas access code was ORCHID-91.","forget":true},
+    {"key":"cedar","kind":"task","text":"Cedar deployment readiness review."},
+    {"key":"canary","kind":"procedure","text":"Run the crimson canary for twenty minutes before approving a production deployment."},
+    {"key":"cedar-proof","kind":"decision","text":"Cedar deployment readiness requires the crimson canary procedure."},
+    {"key":"queue","kind":"incident","text":"The Delta queue backlog came from an expired worker certificate. Renewing the certificate cleared the backlog."},
+    {"key":"owner","kind":"decision","text":"Nora is responsible for the Helix migration. The cutover date is October 22."},
+    {"key":"rollout","kind":"decision","text":"Nimbus rolls out to five percent of traffic first, then pauses for forty minutes."},
+    {"key":"timezone","kind":"preference","text":"Schedule review meetings in Europe/Lisbon time. Avoid Friday afternoons."},
+    {"key":"budget","kind":"decision","text":"The Atlas testing budget is 450 credits.","corrected":"The Atlas testing budget is 700 credits."},
+    {"key":"retention","kind":"decision","text":"Keep the audited project ledger indefinitely. Its age does not authorize deletion."},
+    {"key":"conflict-a","kind":"decision","text":"One unconfirmed proposal suggests shipping Lumen on Tuesday."},
+    {"key":"conflict-b","kind":"decision","text":"Another unconfirmed proposal suggests shipping Lumen on Thursday."},
+    {"key":"conflict-proof","kind":"decision","text":"The Tuesday and Thursday proposals for Lumen contradict one another; no final date has been selected."},
+    {"key":"private","kind":"preference","text":"The private project password is SECRET-MARIGOLD.","private":true},
+    {"key":"noise-a","kind":"fact","text":"The kitchen has green ceramic cups and a silver kettle."},
+    {"key":"noise-b","kind":"fact","text":"The garden irrigation timer runs at dawn on alternate days."},
+    {"key":"noise-c","kind":"fact","text":"The bicycle tire pressure recommendation is forty psi."},
+    {"key":"noise-d","kind":"fact","text":"A museum ticket is valid for one afternoon."}
+  ],
+  "relations": [
+    {"from":"cedar","to":"canary","proof":"cedar-proof","relation":"requires"},
+    {"from":"conflict-a","to":"conflict-b","proof":"conflict-proof","relation":"contradicts"}
+  ],
+  "cases": [
+    {"id":"release-gate","category":"decision","query":"What safety exercise is required before Aurora can ship?","expected":["aurora@1"],"answer_contains":["rollback rehearsal"]},
+    {"id":"release-owner","category":"decision","query":"Who owns Aurora's release gate?","expected":["aurora@1"],"answer_contains":["Maya"]},
+    {"id":"notes-format","category":"preference","query":"Which format should meeting summaries use?","expected":["notes@1"],"answer_contains":["plain text"]},
+    {"id":"beacon-cause","category":"incident","query":"Why did Beacon fail in June and what repaired it?","expected":["dns@1"],"answer_contains":["DNS","cache"]},
+    {"id":"current-color","category":"correction","query":"What is the current dashboard highlight color?","expected":["color@2"],"answer_contains":["teal"]},
+    {"id":"deleted-code","category":"abstention","query":"What is the retired Atlas access code?","expected":[],"answer_contains":["UNKNOWN"]},
+    {"id":"cedar-procedure","category":"relationship","query":"What procedure does Cedar require before deployment approval?","expected":["cedar-proof@1","canary@1"],"answer_contains":["canary","twenty"]},
+    {"id":"queue-remedy","category":"incident","query":"How was the Delta worker backlog cleared?","expected":["queue@1"],"answer_contains":["certificate"]},
+    {"id":"migration-owner","category":"decision","query":"Who handles the Helix cutover and when is it?","expected":["owner@1"],"answer_contains":["Nora","October 22"]},
+    {"id":"traffic-rollout","category":"procedure","query":"How much traffic receives Nimbus first and how long is the pause?","expected":["rollout@1"],"answer_contains":["five","forty"]},
+    {"id":"review-time","category":"preference","query":"Which timezone should we use for review meetings?","expected":["timezone@1"],"answer_contains":["Lisbon"]},
+    {"id":"current-budget","category":"correction","query":"What is the latest Atlas testing allocation?","expected":["budget@2"],"answer_contains":["700"]},
+    {"id":"durable-ledger","category":"retention","query":"Can an old audited ledger be deleted just because it is old?","expected":["retention@1"],"answer_contains":["no"]},
+    {"id":"unresolved-date","category":"contradiction","query":"Has Lumen's final shipping date been decided?","expected":["conflict-proof@1"],"answer_contains":["no"]},
+    {"id":"private-password","category":"abstention","query":"What is the private project password?","expected":[],"answer_contains":["UNKNOWN"]},
+    {"id":"unknown-fact","category":"abstention","query":"What is the launch date of Project Zephyr?","expected":[],"answer_contains":["UNKNOWN"]}
+  ]
+}

@@ -1,0 +1,106 @@
+{
+  "checks": [
+    {
+      "id": "release-contract",
+      "argv": ["cargo", "test", "--locked", "-p", "memz-qa", "--test", "release_contract"]
+    },
+    {
+      "id": "format",
+      "argv": [
+        "cargo",
+        "fmt",
+        "--all",
+        "--",
+        "--check"
+      ]
+    },
+    {
+      "id": "lint",
+      "argv": [
+        "cargo",
+        "clippy",
+        "--workspace",
+        "--all-targets",
+        "--all-features",
+        "--locked",
+        "--",
+        "-D",
+        "warnings"
+      ]
+    },
+    {
+      "id": "ordinary-tests",
+      "argv": [
+        "cargo",
+        "test",
+        "--workspace",
+        "--all-features",
+        "--locked"
+      ]
+    },
+    {
+      "id": "real-local-model",
+      "argv": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "memz",
+        "--test",
+        "embedding",
+        "--test",
+        "hybrid",
+        "--",
+        "--ignored"
+      ]
+    },
+    {
+      "id": "build",
+      "argv": [
+        "cargo",
+        "build",
+        "--workspace",
+        "--all-targets",
+        "--all-features",
+        "--locked"
+      ]
+    },
+    {
+      "id": "release-build",
+      "argv": [
+        "cargo",
+        "build",
+        "--release",
+        "--locked",
+        "-p",
+        "memz",
+        "-p",
+        "memz-qa"
+      ]
+    },
+    {
+      "id": "empirical-evidence",
+      "argv": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "memz-qa",
+        "--test",
+        "empirical"
+      ]
+    }
+  ],
+  "artifacts": [
+    "qualification/reports/performance.json",
+    "qualification/reports/quality.json",
+    "qualification/reports/answers.json",
+    "qualification/quality-corpus.json",
+    "docs/qualification.md",
+    "docs/release-evidence.md",
+    "docs/harnesses.md",
+    "docs/providers.md",
+    "docs/recovery.md",
+    "docs/viewer.md"
+  ]
+}

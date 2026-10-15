@@ -1,0 +1,1 @@
+{"version":1,"sizes":[10000,100000,1000000],"samples":100,"concurrency":4,"seed_timeout_seconds":180,"model_env":"MEMZ_TEST_MODEL","output":"reports/performance-latest.json"}

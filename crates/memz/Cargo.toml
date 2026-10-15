@@ -1,0 +1,18 @@
+[package]
+name = "memz"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+rusqlite = { version = "=0.37.0", features = ["bundled", "hooks", "backup"] }
+libc = "=0.2.190"
+sha2 = "=0.10.9"
+serde = { version = "=1.0.228", features = ["derive"] }
+serde_json = "=1.0.150"
+candle-core = { version = "=0.11.0", default-features = false }
+candle-nn = { version = "=0.11.0", default-features = false }
+candle-transformers = { version = "=0.11.0", default-features = false }
+tokenizers = { version = "=0.22.2", default-features = false, features = ["fancy-regex"] }
+sqlite-vec = "=0.1.9"

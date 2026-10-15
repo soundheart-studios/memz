@@ -1,0 +1,219 @@
+{
+  "name": "verify_evidence",
+  "revision": 4,
+  "description": "Rust removal verification with a green committed baseline and behavioral failure required for every declared criterion. Unchanged regression commands may survive. Compilation and infrastructure errors never count as proof. Derived from Memz revision 3.",
+  "input": {
+    "type": "object",
+    "fields": {
+      "repo": {
+        "type": "string"
+      },
+      "taskId": {
+        "type": "string"
+      },
+      "territory": {
+        "type": "array",
+        "of": {
+          "type": "string"
+        }
+      },
+      "testRefs": {
+        "type": "array",
+        "of": {
+          "type": "string"
+        }
+      },
+      "criteria": {
+        "type": "array",
+        "of": {
+          "type": "object",
+          "fields": {
+            "text": {
+              "type": "string"
+            },
+            "refs": {
+              "type": "array",
+              "of": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "optional": true
+      },
+      "mode": {
+        "type": "string",
+        "optional": true
+      }
+    }
+  },
+  "steps": [
+    {
+      "key": "mutate",
+      "determinism": "deterministic",
+      "body": {
+        "kind": "shell",
+        "command": "cargo run --quiet --locked -p memz-qa -- verify-evidence"
+      },
+      "input": {
+        "type": "object",
+        "fields": {
+          "repo": {
+            "type": "string"
+          },
+          "taskId": {
+            "type": "string"
+          },
+          "territory": {
+            "type": "array",
+            "of": {
+              "type": "string"
+            }
+          },
+          "testRefs": {
+            "type": "array",
+            "of": {
+              "type": "string"
+            }
+          },
+          "criteria": {
+            "type": "array",
+            "of": {
+              "type": "object",
+              "fields": {
+                "text": {
+                  "type": "string"
+                },
+                "refs": {
+                  "type": "array",
+                  "of": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            "optional": true
+          },
+          "mode": {
+            "type": "string",
+            "optional": true
+          }
+        }
+      },
+      "output": {
+        "type": "object",
+        "fields": {
+          "taskId": {
+            "type": "string"
+          },
+          "impl": {
+            "type": "array",
+            "of": {
+              "type": "string"
+            }
+          },
+          "reverted": {
+            "type": "array",
+            "of": {
+              "type": "string"
+            }
+          },
+          "refs": {
+            "type": "array",
+            "of": {
+              "type": "string"
+            }
+          },
+          "failed": {
+            "type": "array",
+            "of": {
+              "type": "string"
+            }
+          },
+          "survived": {
+            "type": "array",
+            "of": {
+              "type": "string"
+            }
+          },
+          "error": {
+            "type": "union",
+            "of": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "criteria": {
+            "type": "array",
+            "of": {
+              "type": "object",
+              "fields": {
+                "text": {
+                  "type": "string"
+                },
+                "refs": {
+                  "type": "array",
+                  "of": {
+                    "type": "string"
+                  }
+                },
+                "outcome": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "declared": {
+            "type": "array",
+            "of": {
+              "type": "string"
+            }
+          },
+          "proved": {
+            "type": "array",
+            "of": {
+              "type": "string"
+            }
+          },
+          "mutationMode": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  ],
+  "assertions": [
+    {
+      "kind": "schema",
+      "reason": "unreadable_mutation"
+    },
+    {
+      "kind": "count",
+      "of": "output.reverted[]",
+      "min": 1,
+      "reason": "nothing_to_revert"
+    },
+    {
+      "kind": "count",
+      "of": "output.refs[]",
+      "min": 1,
+      "reason": "no_refs_to_run"
+    },
+    {
+      "kind": "count",
+      "of": "output.failed[]",
+      "min": 1,
+      "reason": "survived_mutation"
+    },
+    {
+      "kind": "subset",
+      "of": "output.declared[]",
+      "within": "output.proved[]",
+      "reason": "criterion_unproved"
+    }
+  ]
+}

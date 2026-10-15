@@ -1,0 +1,17 @@
+/target/
+**/*.sqlite
+**/*.sqlite-wal
+**/*.sqlite-shm
+**/*.db
+**/*.db-wal
+**/*.db-shm
+*.tsbuildinfo
+/reports/
+/.planwright/
+/.memz/
+# Local agent and harness configuration (machine-specific paths)
+/.mcp.json
+/.codex/
+/.claude/settings*.json
+/.claude/skills/planwright/
+/.agents/skills/planwright/
