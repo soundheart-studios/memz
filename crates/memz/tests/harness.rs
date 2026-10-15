@@ -22,7 +22,7 @@ fn concurrent_fixtures_are_isolated() {
     let roots: std::collections::HashSet<_> = fixtures.iter().map(|(f, _)| &f.root).collect();
     assert_eq!(roots.len(), 4);
     for (fixture, _) in &fixtures {
-        assert!(fixture.root.starts_with("/private/tmp"));
+        assert!(fixture.root.starts_with(common::TMP));
     }
 }
 

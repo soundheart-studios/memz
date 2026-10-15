@@ -5,6 +5,13 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
+/// Short, private-capable temporary base; socket paths must stay under SUN_LEN.
+pub const TMP: &str = if cfg!(target_os = "macos") {
+    "/private/tmp"
+} else {
+    "/tmp"
+};
+
 pub struct Fixture {
     pub root: PathBuf,
 }
@@ -19,7 +26,7 @@ impl Fixture {
         let mut hash = std::collections::hash_map::DefaultHasher::new();
         run.hash(&mut hash);
         std::thread::current().id().hash(&mut hash);
-        let root = PathBuf::from("/private/tmp").join(format!(
+        let root = PathBuf::from(TMP).join(format!(
             "mz-{:x}-{:x}-{:x}-{label}",
             hash.finish(),
             std::process::id(),

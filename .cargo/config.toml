@@ -1,0 +1,5 @@
+# gemm-f16 (via Candle) uses fp16 inline assembly that the generic aarch64 Linux
+# target does not enable. macOS arm64 enables it by default. This makes Linux
+# arm64 builds require ARMv8.2-A or newer (e.g. Graviton2+, Ampere, Raspberry Pi 5).
+[target.aarch64-unknown-linux-gnu]
+rustflags = ["-C", "target-feature=+fp16"]

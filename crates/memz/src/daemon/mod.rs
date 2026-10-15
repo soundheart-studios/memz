@@ -210,6 +210,39 @@ fn read_json(stream: &mut UnixStream, max: usize) -> Result<Value> {
     }
     serde_json::from_slice(&bytes).map_err(|_| Error::new("invalid_request", "invalid JSON frame"))
 }
+/// Whether the connected peer runs as this daemon's effective user.
+fn peer_is_owner(stream: &UnixStream) -> bool {
+    #[cfg(any(target_os = "macos", target_os = "freebsd"))]
+    {
+        let mut uid = 0;
+        let mut gid = 0;
+        let rc = unsafe { libc::getpeereid(stream.as_raw_fd(), &mut uid, &mut gid) };
+        rc == 0 && uid == unsafe { libc::geteuid() }
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let mut cred = libc::ucred {
+            pid: 0,
+            uid: 0,
+            gid: 0,
+        };
+        let mut len = std::mem::size_of::<libc::ucred>() as libc::socklen_t;
+        let rc = unsafe {
+            libc::getsockopt(
+                stream.as_raw_fd(),
+                libc::SOL_SOCKET,
+                libc::SO_PEERCRED,
+                (&mut cred as *mut libc::ucred).cast(),
+                &mut len,
+            )
+        };
+        rc == 0
+            && len as usize == std::mem::size_of::<libc::ucred>()
+            && cred.uid == unsafe { libc::geteuid() }
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "freebsd", target_os = "linux")))]
+    compile_error!("memz requires a socket peer-credential check on this platform");
+}
 fn serve<F>(mut stream: UnixStream, bindings: &[Binding], limits: Limits, handler: &F) -> Result<()>
 where
     F: Fn(&Binding, Value) -> Result<Value>,
@@ -221,17 +254,14 @@ where
     stream.set_read_timeout(timeout)?;
     stream.set_write_timeout(timeout)?;
     let response = (|| {
-        #[cfg(any(target_os = "macos", target_os = "freebsd"))]
-        {
-            let mut uid = 0;
-            let mut gid = 0;
-            if unsafe { libc::getpeereid(stream.as_raw_fd(), &mut uid, &mut gid) } != 0
-                || uid != unsafe { libc::geteuid() }
-            {
-                return Err(Error::new("denied", "access is not authorized"));
-            }
+        // Read the bounded frame before rejecting, so a denied client that
+        // writes before reading still receives the error instead of EPIPE.
+        let owner = peer_is_owner(&stream);
+        let frame = read_json(&mut stream, limits.max_request_bytes);
+        if !owner {
+            return Err(Error::new("denied", "access is not authorized"));
         }
-        let value = read_json(&mut stream, limits.max_request_bytes)?;
+        let value = frame?;
         if value["version"].as_u64() != Some(1) {
             return Err(Error::new(
                 "protocol_mismatch",

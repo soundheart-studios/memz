@@ -1,0 +1,86 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to (re)build, e.g. v0.1.0"
+        required: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  TAG: ${{ github.event.inputs.tag || github.ref_name }}
+
+jobs:
+  build:
+    name: build (${{ matrix.target }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { target: aarch64-apple-darwin, os: macos-latest, smoke: native }
+          - { target: x86_64-apple-darwin, os: macos-latest, smoke: rosetta }
+          # Ubuntu 22.04 runners link against glibc 2.35 for wider compatibility.
+          - { target: x86_64-unknown-linux-gnu, os: ubuntu-22.04, smoke: native }
+          - { target: aarch64-unknown-linux-gnu, os: ubuntu-22.04-arm, smoke: native }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+      - run: rustup toolchain install
+      - run: rustup target add ${{ matrix.target }}
+      - name: Build
+        run: cargo build --release --locked -p memz --target ${{ matrix.target }}
+      - name: Smoke test
+        run: |
+          BIN=target/${{ matrix.target }}/release/memz
+          if [ "${{ matrix.smoke }}" = native ] || arch -x86_64 /usr/bin/true 2>/dev/null; then
+            .github/scripts/smoke.sh "$BIN"
+          else
+            echo "Rosetta unavailable on this runner; built only"
+          fi
+      - name: Package
+        shell: bash
+        run: |
+          NAME=memz-${TAG}-${{ matrix.target }}
+          mkdir -p "dist/$NAME"
+          cp target/${{ matrix.target }}/release/memz README.md LICENSE-MIT LICENSE-APACHE "dist/$NAME/"
+          cp -R .claude/skills/memz "dist/$NAME/skill"
+          tar -C dist -czf "dist/$NAME.tar.gz" "$NAME"
+          (cd dist && shasum -a 256 "$NAME.tar.gz" > "$NAME.tar.gz.sha256")
+      - uses: actions/upload-artifact@v4
+        with:
+          name: memz-${{ matrix.target }}
+          path: |
+            dist/*.tar.gz
+            dist/*.sha256
+          if-no-files-found: error
+
+  publish:
+    name: publish GitHub release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Create or update release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ls -l dist
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/* --clobber --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create "$TAG" dist/* --repo "$GITHUB_REPOSITORY" \
+              --title "Memz $TAG" --generate-notes --draft
+          fi

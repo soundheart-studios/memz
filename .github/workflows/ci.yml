@@ -1,0 +1,103 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  # Smaller debug info keeps the many test binaries' link memory bounded.
+  CARGO_PROFILE_DEV_DEBUG: line-tables-only
+
+jobs:
+  lint:
+    name: fmt + clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+
+  test:
+    name: test (${{ matrix.name }})
+    needs: lint
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: linux-x86_64, os: ubuntu-latest, peer: "1" }
+          - { name: linux-aarch64, os: ubuntu-24.04-arm, peer: "1" }
+          - { name: macos-aarch64, os: macos-latest, peer: "0" }
+    runs-on: ${{ matrix.os }}
+    env:
+      PW_RUN_ID: ci-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.name }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.name }}
+      - name: Clippy (platform-specific code paths)
+        run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+      - name: Test
+        # Retained qualification reports are fingerprinted against the exact
+        # source tree; they are validated in their own job below.
+        run: >-
+          cargo test --workspace --all-features --locked --
+          --skip retained_performance_matches_source_and_raw_measurements
+          --skip retained_quality_matches_source_and_actual_answer_evidence
+      - name: Build release binary
+        run: cargo build --release --locked -p memz
+      - name: Install netcat for the peer-credential check
+        if: matrix.peer == '1'
+        run: sudo apt-get install -y -qq netcat-openbsd
+      - name: End-to-end smoke test
+        env:
+          SMOKE_PEER: ${{ matrix.peer }}
+        run: .github/scripts/smoke.sh target/release/memz
+
+  macos-x86_64:
+    name: build (macos-x86_64)
+    needs: lint
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup toolchain install
+      - run: rustup target add x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: macos-x86_64
+      - run: cargo build --release --locked -p memz --target x86_64-apple-darwin
+      - name: Smoke test under Rosetta when available
+        run: |
+          if arch -x86_64 /usr/bin/true 2>/dev/null; then
+            .github/scripts/smoke.sh target/x86_64-apple-darwin/release/memz
+          else
+            echo "Rosetta unavailable on this runner; built only"
+          fi
+
+  retained-evidence:
+    name: retained qualification evidence
+    # Informational until qualification is re-run on the current source tree;
+    # see docs/qualification.md ("Publication notes").
+    continue-on-error: true
+    needs: lint
+    runs-on: ubuntu-latest
+    env:
+      PW_RUN_ID: ci-${{ github.run_id }}-evidence
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --locked -p memz-qa --test empirical

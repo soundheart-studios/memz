@@ -1,5 +1,7 @@
 # Memz
 
+[![CI](https://github.com/soundheart-studios/memz/actions/workflows/ci.yml/badge.svg)](https://github.com/soundheart-studios/memz/actions/workflows/ci.yml)
+
 **Local-first, durable memory for AI agents.** Memz is a Rust daemon, CLI and
 MCP server that gives coding agents and other harnesses scoped project memory:
 durable capture, lexical and local semantic recall, corrections that actually
@@ -45,7 +47,7 @@ model downloads.
 
 ## Quick start
 
-Requires Rust 1.88+ (the repo pins its toolchain in `rust-toolchain.toml`). Qualified on macOS arm64; Linux is supported by the code paths but has not been qualified.
+Runs on macOS (arm64, x86_64) and Linux (x86_64, arm64 ARMv8.2+); Windows users can use WSL2. See [platforms](docs/platforms.md). Building needs Rust 1.88+; the repo pins 1.98.0 in `rust-toolchain.toml`. Performance qualification was done on macOS arm64. Tagged releases also publish prebuilt binaries.
 
 ```sh
 git clone https://github.com/soundheart-studios/memz.git && cd memz
@@ -199,6 +201,7 @@ false positives and negatives. It is not a general accuracy rate.
   tested only on the small fixture.
 - Once 10,000 enrichment jobs are pending, new writes return `busy`.
 - The MCP adapter is stdio-only. The daemon does not start itself.
+- Windows is not supported natively; see the [porting inventory](docs/platforms.md#windows-porting-inventory).
 - MCP `remember` currently records writes as user-origin. The bundled skill asks
   agents to prefix memories with `User:` or `Verified:` until provenance is
   carried through.
@@ -212,6 +215,7 @@ false positives and negatives. It is not a general accuracy rate.
 | [Relationships](docs/graph.md) | Evidence-backed edges, authority, graph recall, impact preview |
 | [Recovery](docs/recovery.md) | Backup, restore, relocation, retained copies |
 | [Viewer](docs/viewer.md) | Static HTML/Markdown/JSONL exports |
+| [Platforms](docs/platforms.md) | Supported targets, CI, local cross-platform checks, Windows inventory |
 | [Qualification](docs/qualification.md) | Measurement protocol and results |
 | [Release evidence](docs/release-evidence.md) | What was validated, what remains bounded |
 | [SPEC.md](SPEC.md) | Original design specification and contracts |
@@ -224,7 +228,9 @@ cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 PW_RUN_ID=dev-$(date +%s) cargo test --workspace --all-features --locked
 ```
 
-`PW_RUN_ID` is required. It isolates every test in a private temporary root, so
+CI runs the same commands, plus `.github/scripts/smoke.sh` against the release
+binary, on Linux x86_64/arm64 and macOS. See [platforms](docs/platforms.md) to
+reproduce the Linux job locally in Docker. `PW_RUN_ID` is required. It isolates every test in a private temporary root, so
 tests never touch your real `~/.memz`. Two real-model integration tests are ignored
 by default; run them with `MEMZ_TEST_MODEL=/abs/model/dir` and `-- --ignored`.
 The two `memz-qa` empirical tests validate the retained reports in

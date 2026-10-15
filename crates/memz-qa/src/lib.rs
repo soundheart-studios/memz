@@ -176,8 +176,11 @@ fn test(repo: &Path, reference: &str) -> Result<bool> {
                 .as_nanos()
         )
     });
+    // An inherited CARGO_TARGET_DIR would let concurrent scratch clones overwrite
+    // each other's build artifacts and corrupt mutation outcomes.
     cmd.env("PW_RUN_ID", run_id)
-        .env("MEMZ_HOME", repo.join(".memz-fixture"));
+        .env("MEMZ_HOME", repo.join(".memz-fixture"))
+        .env("CARGO_TARGET_DIR", repo.join("target"));
     let out = output(cmd)?;
     classify_test(
         out.status.success(),
