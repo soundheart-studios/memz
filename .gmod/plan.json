@@ -1,0 +1,347 @@
+{
+  "main": "main",
+  "checks": {
+    "spec-sections": "test -s spec/amx/SPEC.md && for s in Records Scope Provenance Revisions Deletion Secrets 'Readable profile' Operations Conformance; do grep -q \"^## .*$s\" spec/amx/SPEC.md || { echo \"missing section: $s\"; exit 1; }; done",
+    "spec-schemas": "for f in record tombstone manifest; do jq -e . spec/amx/schema/$f.schema.json >/dev/null || exit 1; done",
+    "amx-roundtrip": "cargo test -p amx --locked --test roundtrip && cargo clippy -p amx --all-targets --all-features --locked -- -D warnings",
+    "amx-validate": "cargo test -p amx --locked --test validate && cargo clippy -p amx --all-targets --all-features --locked -- -D warnings",
+    "amx-bundle": "cargo test -p amx --locked --test bundle && cargo clippy -p amx --all-targets --all-features --locked -- -D warnings",
+    "amx-planner": "cargo test -p amx --locked --test planner && cargo clippy -p amx --all-targets --all-features --locked -- -D warnings",
+    "amx-conformance": "cargo test -p amx --locked --test conformance && cargo clippy -p amx --all-targets --all-features --locked -- -D warnings",
+    "amx-markdown": "cargo test -p amx --locked --test markdown && cargo clippy -p amx --all-targets --all-features --locked -- -D warnings",
+    "amx-sign": "cargo test -p amx --locked --features signing --test sign && cargo clippy -p amx --all-targets --all-features --locked -- -D warnings",
+    "memz-amx-export": "PW_RUN_ID=gmod-check cargo test -p memz --all-features --locked --test amx_export && cargo clippy -p memz --all-targets --all-features --locked -- -D warnings",
+    "memz-exports": "PW_RUN_ID=gmod-check cargo test -p memz --all-features --locked --test exports",
+    "memz-amx-validate": "PW_RUN_ID=gmod-check cargo test -p memz --all-features --locked --test amx_validate && cargo clippy -p memz --all-targets --all-features --locked -- -D warnings",
+    "memz-amx-import": "PW_RUN_ID=gmod-check cargo test -p memz --all-features --locked --test amx_import && cargo clippy -p memz --all-targets --all-features --locked -- -D warnings",
+    "memz-adapter-parity": "PW_RUN_ID=gmod-check cargo test -p memz --all-features --locked --test adapter_parity",
+    "memz-amx-conformance": "PW_RUN_ID=gmod-check cargo test -p memz --all-features --locked --test amx_conformance && cargo clippy -p memz --all-targets --all-features --locked -- -D warnings",
+    "amx-docs": "test -s docs/amx.md && for w in export validate import conformance; do grep -qi \"$w\" docs/amx.md || exit 1; done && grep -q 'docs/amx.md' README.md"
+  },
+  "jobs": [
+    {
+      "id": "amx-spec",
+      "phase": "spec",
+      "goal": "Write the AMX v0.1 draft spec and schemas",
+      "brief": "spec/amx/SPEC.md: the AMX (Agent Memory eXchange) draft. Sections: Records (core envelope: id, revision, kind, content, scope, provenance, status, valid_from/valid_to, recorded_at; extensions under namespaced attributes), Scope (typed dimension list; unknown dimensions fail closed), Provenance (origin, author, explicit vs inferred; inferred requires evidence), Revisions (supersede never overwrite; writes name the expected revision; conflicts surfaced), Deletion (tombstones are content-free, applied before records, never resurrect), Secrets (references only), Readable profile (Markdown + frontmatter is a view; deletion/correction only via operations), Operations (remember, recall, correct, forget, change feed), Conformance (L0 export, L1 import, L2 live). Include a .mem (Portable Memory) packaging alignment note and a Memz mapping appendix. JSON Schemas in spec/amx/schema/ (record, tombstone, manifest). Spec only; no code.",
+      "files": [
+        "spec/amx/**"
+      ],
+      "tests": [],
+      "done_when": [
+        {
+          "text": "SPEC.md exists with every required section heading",
+          "check": "spec-sections"
+        },
+        {
+          "text": "record, tombstone and manifest JSON Schemas exist and are valid JSON",
+          "check": "spec-schemas"
+        }
+      ]
+    },
+    {
+      "id": "amx-types",
+      "phase": "core",
+      "goal": "Create the amx crate with record types",
+      "brief": "New workspace member crates/amx (no dependency on memz; serde + serde_json only, pinned exact like the rest of the workspace). Types for Record, Scope (typed dimensions), Provenance, Evidence, Link, Tombstone, Manifest per spec/amx/SPEC.md. Canonical JSONL read/write that round-trips byte-stable and preserves unknown fields and attributes. No validation rules yet beyond serde shape.",
+      "files": [
+        "Cargo.toml",
+        "Cargo.lock",
+        "crates/amx/Cargo.toml",
+        "crates/amx/src/lib.rs",
+        "crates/amx/src/record.rs"
+      ],
+      "tests": [
+        "crates/amx/tests/roundtrip.rs"
+      ],
+      "done_when": [
+        {
+          "text": "records round-trip through JSONL unchanged, including unknown fields",
+          "check": "amx-roundtrip"
+        }
+      ]
+    },
+    {
+      "id": "amx-validate",
+      "phase": "core",
+      "after": [
+        "amx-types"
+      ],
+      "goal": "Enforce the AMX non-negotiable record rules",
+      "brief": "crates/amx/src/validate.rs: reject records missing provenance; reject inferred records without evidence; treat scope dimensions the reader does not know as not visible (fail closed); reject secret values (only secret references allowed); reject tombstones that carry content. Returns typed errors, never panics.",
+      "files": [
+        "crates/amx/src/lib.rs",
+        "crates/amx/src/validate.rs"
+      ],
+      "tests": [
+        "crates/amx/tests/validate.rs"
+      ],
+      "done_when": [
+        {
+          "text": "each non-negotiable rule has a passing and a rejected case",
+          "check": "amx-validate"
+        }
+      ]
+    },
+    {
+      "id": "amx-bundle",
+      "phase": "core",
+      "after": [
+        "amx-validate"
+      ],
+      "goal": "Read, write and verify .amx bundles with checksums",
+      "brief": "crates/amx/src/bundle.rs: a .amx bundle is a directory: manifest.json (spec version, generator, namespaces, cursor, capabilities), records/*.jsonl, tombstones.jsonl, CHECKSUMS (SHA-256 per file). Layout aligned with Portable Memory packaging where compatible. Writing is deterministic; reading verifies checksums and validates every record; reject path traversal and symlinks.",
+      "files": [
+        "Cargo.lock",
+        "crates/amx/Cargo.toml",
+        "crates/amx/src/lib.rs",
+        "crates/amx/src/bundle.rs"
+      ],
+      "tests": [
+        "crates/amx/tests/bundle.rs"
+      ],
+      "done_when": [
+        {
+          "text": "a written bundle reads back identically; a tampered file, bad checksum or path escape is rejected",
+          "check": "amx-bundle"
+        }
+      ]
+    },
+    {
+      "id": "amx-planner",
+      "phase": "core",
+      "after": [
+        "amx-bundle"
+      ],
+      "goal": "Plan imports without resurrecting deleted memories",
+      "brief": "crates/amx/src/plan.rs: given a verified bundle and a view of what a store holds (ids, revisions, tombstones), return an ImportPlan: tombstones first, then adds, supersedes, no-ops and conflicts. Never writes. Rules: a tombstoned id never comes back; same id+revision+content is a no-op; a revision that does not follow the stored one is a conflict, not an overwrite; inferred records never supersede explicit ones. Re-planning the same bundle after applying it yields only no-ops.",
+      "files": [
+        "crates/amx/src/lib.rs",
+        "crates/amx/src/plan.rs"
+      ],
+      "tests": [
+        "crates/amx/tests/planner.rs"
+      ],
+      "done_when": [
+        {
+          "text": "planner orders deletions first, refuses resurrection, reports conflicts and is idempotent",
+          "check": "amx-planner"
+        }
+      ]
+    },
+    {
+      "id": "amx-ops",
+      "phase": "core",
+      "after": [
+        "amx-planner"
+      ],
+      "goal": "Define the AMX operations contract and conformance runner",
+      "brief": "crates/amx/src/ops.rs: a Store trait for the live contract (remember, recall, correct with expected revision, forget, changes since cursor, export, plan/apply import). crates/amx/src/conformance.rs: a runner that loads language-neutral vectors from spec/amx/conformance/ (input bundle + operations + expected outcome JSON) and checks any Store. Ship an in-memory reference Store used only by tests, plus vectors covering L0 export, L1 import (no resurrection, idempotency) and L2 (stale revision conflict, change feed).",
+      "files": [
+        "crates/amx/src/lib.rs",
+        "crates/amx/src/ops.rs",
+        "crates/amx/src/conformance.rs",
+        "spec/amx/conformance/**"
+      ],
+      "tests": [
+        "crates/amx/tests/conformance.rs"
+      ],
+      "done_when": [
+        {
+          "text": "the in-memory reference store passes every L0, L1 and L2 vector",
+          "check": "amx-conformance"
+        }
+      ]
+    },
+    {
+      "id": "amx-markdown",
+      "phase": "core",
+      "after": [
+        "amx-ops"
+      ],
+      "goal": "Render records as readable Markdown and back",
+      "brief": "crates/amx/src/markdown.rs: the readable profile, one Markdown file per record with YAML-style frontmatter holding the envelope and the body as content. Lossless round-trip to canonical records. Parsing a Markdown tree never produces deletions or supersedes on its own: a missing or edited file is reported as a diff, not applied. Hand-rolled frontmatter (no YAML dependency) unless the spec job decided otherwise.",
+      "files": [
+        "crates/amx/src/lib.rs",
+        "crates/amx/src/markdown.rs"
+      ],
+      "tests": [
+        "crates/amx/tests/markdown.rs"
+      ],
+      "done_when": [
+        {
+          "text": "records round-trip through Markdown; a deleted file shows as a diff, never a deletion",
+          "check": "amx-markdown"
+        }
+      ]
+    },
+    {
+      "id": "amx-sign",
+      "phase": "core",
+      "after": [
+        "amx-markdown"
+      ],
+      "goal": "Optionally sign and verify bundles with Ed25519",
+      "brief": "Behind a `signing` cargo feature (off by default): detached Ed25519 signature over manifest.json (which covers CHECKSUMS) and signed tombstones, using a pinned ed25519-dalek. Verification failures are errors; unsigned bundles still read when signing is not required.",
+      "files": [
+        "Cargo.lock",
+        "crates/amx/Cargo.toml",
+        "crates/amx/src/lib.rs",
+        "crates/amx/src/sign.rs"
+      ],
+      "tests": [
+        "crates/amx/tests/sign.rs"
+      ],
+      "done_when": [
+        {
+          "text": "a signed bundle verifies; a changed manifest or tombstone fails verification",
+          "check": "amx-sign"
+        }
+      ]
+    },
+    {
+      "id": "memz-amx-export",
+      "phase": "memz",
+      "goal": "Memz exports its memory as an .amx bundle",
+      "brief": "Add a mapping module crates/memz/src/interop/ (sources+items -> records, evidence spans, edges -> links, deletion tombstones from operations -> AMX tombstones; revision, slot and explicit flag as core fields or under `memz.*` attributes). `memz export` (and the MCP export tool) also writes <name>.amx next to the existing files, using amx::bundle. Keep memz-jsonl-v1, Markdown and HTML outputs unchanged so existing validate_import keeps working. Session-private records only appear in exports for that session, as today.",
+      "files": [
+        "Cargo.lock",
+        "crates/memz/Cargo.toml",
+        "crates/memz/src/lib.rs",
+        "crates/memz/src/interop/**",
+        "crates/memz/src/export/**"
+      ],
+      "tests": [
+        "crates/memz/tests/amx_export.rs"
+      ],
+      "done_when": [
+        {
+          "text": "an export produces a bundle that amx verifies, with provenance, evidence, links and tombstones for remembered, corrected, related and forgotten memories",
+          "check": "memz-amx-export"
+        },
+        {
+          "text": "existing export tests still pass",
+          "check": "memz-exports"
+        }
+      ]
+    },
+    {
+      "id": "memz-amx-validate",
+      "phase": "memz",
+      "after": [
+        "memz-amx-export"
+      ],
+      "goal": "Preview what importing an .amx bundle would change",
+      "brief": "Extend validation (crates/memz/src/import/) so a bundle under the state exports/imports area can be checked: verify checksums, validate records, map scope to this namespace (unknown scope fails closed), and run amx::plan against the store to return counts of adds, supersedes, no-ops, conflicts and refused resurrections. Dry run only: nothing is written. The MCP validate_import tool gains this mode; it stays read-only.",
+      "files": [
+        "crates/memz/src/import/**",
+        "crates/memz/src/interop/**",
+        "crates/memz/src/adapters/mod.rs"
+      ],
+      "tests": [
+        "crates/memz/tests/amx_validate.rs"
+      ],
+      "done_when": [
+        {
+          "text": "validating a bundle reports the plan, writes nothing, and refuses to resurrect a forgotten memory",
+          "check": "memz-amx-validate"
+        }
+      ]
+    },
+    {
+      "id": "memz-amx-import",
+      "phase": "memz",
+      "after": [
+        "memz-amx-validate"
+      ],
+      "goal": "Import .amx bundles from the CLI only",
+      "brief": "`memz import <bundle>` prints the plan and needs `--apply` to write. Apply runs the plan in one transaction per namespace: tombstones first, then adds and supersedes with their revisions and provenance, recording request ids so a repeat import is a no-op. Conflicts abort the apply unless the person passes an explicit flag to skip them. Import is a trusted CLI-only operation: it must NOT be exposed as an MCP tool (existing decision on trusted operations).",
+      "files": [
+        "crates/memz/src/bin/memz.rs",
+        "crates/memz/src/import/**",
+        "crates/memz/src/interop/**",
+        "crates/memz/src/lifecycle/mod.rs",
+        "crates/memz/src/capture/mod.rs"
+      ],
+      "tests": [
+        "crates/memz/tests/amx_import.rs"
+      ],
+      "done_when": [
+        {
+          "text": "export from one store and import into a fresh one reproduces the same recall results, a repeat import changes nothing, and forgotten memories stay forgotten",
+          "check": "memz-amx-import"
+        },
+        {
+          "text": "the MCP tool list does not include import",
+          "check": "memz-adapter-parity"
+        }
+      ]
+    },
+    {
+      "id": "memz-amx-conformance",
+      "phase": "memz",
+      "after": [
+        "memz-amx-import"
+      ],
+      "goal": "Memz passes the AMX conformance suite",
+      "brief": "Implement amx::ops::Store for Memz in crates/memz/src/interop/ over a real test namespace: remember, recall, correct with expected revision, forget, export, plan/apply import, and changes since a cursor (expose the namespace mutation sequence as the public AMX cursor). Run the shared vectors from spec/amx/conformance/ against it. Any vector Memz cannot meet is a failing test, not a skip.",
+      "files": [
+        "crates/memz/src/interop/**",
+        "crates/memz/src/lib.rs",
+        "crates/memz/src/lifecycle/mod.rs"
+      ],
+      "tests": [
+        "crates/memz/tests/amx_conformance.rs"
+      ],
+      "done_when": [
+        {
+          "text": "Memz passes every L0, L1 and L2 conformance vector",
+          "check": "memz-amx-conformance"
+        }
+      ]
+    },
+    {
+      "id": "memz-amx-docs",
+      "phase": "memz",
+      "after": [
+        "memz-amx-conformance"
+      ],
+      "goal": "Document AMX export and import for Memz users",
+      "brief": "docs/amx.md: what AMX is, how to export, validate and import with Memz, what maps where, and the conformance level Memz meets. Link it from README.md. No code changes.",
+      "files": [
+        "docs/amx.md",
+        "README.md"
+      ],
+      "tests": [],
+      "done_when": [
+        {
+          "text": "docs/amx.md covers export, validate, import and conformance, and README links to it",
+          "check": "amx-docs"
+        }
+      ]
+    }
+  ],
+  "phases": [
+    {
+      "id": "spec",
+      "title": "AMX spec",
+      "outcome": "A written AMX v0.1 draft spec and JSON Schemas define the record, scope, provenance, revisions, deletion, operations and conformance levels."
+    },
+    {
+      "id": "core",
+      "title": "AMX core crate",
+      "outcome": "A standalone Rust crate reads, writes, validates, bundles and plans imports of AMX data, and passes language-neutral conformance vectors.",
+      "after": [
+        "spec"
+      ]
+    },
+    {
+      "id": "memz",
+      "title": "Memz speaks AMX",
+      "outcome": "Memz exports AMX bundles, validates and (via CLI only) imports them, and passes the AMX conformance suite as the reference implementation.",
+      "after": [
+        "core"
+      ]
+    }
+  ]
+}
