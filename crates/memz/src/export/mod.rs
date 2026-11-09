@@ -23,6 +23,10 @@ pub struct Export {
     pub jsonl: String,
     pub markdown: String,
     pub html: String,
+    /// The same snapshot as an AMX bundle (file name to contents), written
+    /// by [`publish`] as `<name>.amx`. Not part of the serialized export.
+    #[serde(skip)]
+    pub amx: std::collections::BTreeMap<String, Vec<u8>>,
 }
 fn cancelled(cancel: &AtomicBool) -> Result<()> {
     if cancel.load(Ordering::SeqCst) {
@@ -143,6 +147,13 @@ pub fn snapshot(
         }
     }
     drop(edge_query);
+    let amx = crate::interop::encode(&crate::interop::bundle(
+        &tx,
+        &store.namespace,
+        cap.session(),
+        revision,
+        now(),
+    )?)?;
     drop(tx);
     drop(_lock);
     // Render only from the captured data, after releasing SQLite and authorization locks.
@@ -169,6 +180,7 @@ pub fn snapshot(
         jsonl,
         markdown,
         html,
+        amx,
     })
 }
 struct Temporary(PathBuf);
@@ -215,6 +227,13 @@ pub fn publish(
     }
     let state = StateRoot::open(&state.path)?;
     let directory = state.path.join("exports");
+    let amx_path = directory.join(format!("{name}.amx"));
+    if fs::symlink_metadata(&amx_path).is_ok() {
+        return Err(Error::new(
+            "exists",
+            "an export with this name already exists",
+        ));
+    }
     cancelled(cancel)?;
     let json = staged(&directory, export.jsonl.as_bytes(), cancel)?;
     let md = staged(&directory, export.markdown.as_bytes(), cancel)?;
@@ -232,6 +251,17 @@ pub fn publish(
         fs::remove_file(&json_path)?;
         fs::remove_file(&md_path)?;
         return Err(error.into());
+    }
+    if !export.amx.is_empty() {
+        // Decoding re-verifies the bundle; writing assembles it beside the
+        // target and renames it into place.
+        let written = amx::Bundle::decode(&export.amx).and_then(|b| b.write(&amx_path));
+        if let Err(error) = written {
+            fs::remove_file(&json_path)?;
+            fs::remove_file(&md_path)?;
+            fs::remove_file(&html_path)?;
+            return Err(Error::new("invalid_export", error.to_string()));
+        }
     }
     std::fs::File::open(&directory)?.sync_all()?;
     Ok((json_path, md_path))

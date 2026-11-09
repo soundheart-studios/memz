@@ -11,6 +11,7 @@ pub mod graph;
 pub mod health;
 pub mod import;
 pub mod inspect;
+pub mod interop;
 pub mod jobs;
 pub mod lifecycle;
 pub mod providers;
