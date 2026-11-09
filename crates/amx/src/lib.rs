@@ -10,6 +10,8 @@ mod markdown;
 mod ops;
 mod plan;
 mod record;
+#[cfg(feature = "signing")]
+mod sign;
 mod validate;
 
 pub use bundle::{
@@ -27,6 +29,8 @@ pub use record::{
     Counts, Evidence, Generator, Link, Manifest, NamespaceCursor, Object, Provenance, Record, Ref,
     Scope, Source, Tombstone, VERSION, format_timestamp, parse_timestamp, read_jsonl, write_jsonl,
 };
+#[cfg(feature = "signing")]
+pub use sign::{public_key, read_verified, sign_bundle, verify_files};
 pub use validate::{
     Support, is_id, validate_link, validate_manifest, validate_record, validate_scope,
     validate_source, validate_tombstone,
