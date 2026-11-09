@@ -5,10 +5,15 @@
 //! connection. Stores implement the operations contract on top of it.
 
 mod record;
+mod validate;
 
 pub use record::{
     Counts, Evidence, Generator, Link, Manifest, NamespaceCursor, Object, Provenance, Record, Ref,
     Scope, Source, Tombstone, VERSION, format_timestamp, parse_timestamp, read_jsonl, write_jsonl,
+};
+pub use validate::{
+    Support, is_id, validate_link, validate_manifest, validate_record, validate_scope,
+    validate_source, validate_tombstone,
 };
 
 /// An AMX error: a stable machine-readable `code`, a human message and,
