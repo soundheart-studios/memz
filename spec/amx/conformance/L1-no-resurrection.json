@@ -1,0 +1,93 @@
+{
+  "name": "no-resurrection",
+  "level": "L1",
+  "description": "A forgotten memory never comes back through an import, whatever revision it claims, and a bundle cannot add what its own tombstones delete.",
+  "steps": [
+    {
+      "op": "remember",
+      "as": "a",
+      "draft": {
+        "kind": "fact",
+        "content": "the launch code is in the drawer"
+      },
+      "expect": {
+        "revision": 1
+      }
+    },
+    {
+      "op": "forget",
+      "id": "$a",
+      "expect": {
+        "target_id": "$a"
+      }
+    },
+    {
+      "op": "import",
+      "apply": true,
+      "bundle": {
+        "records": [
+          {
+            "id": "$a",
+            "revision": 1,
+            "content": "the launch code is in the drawer"
+          },
+          {
+            "id": "$a",
+            "revision": 2,
+            "content": "the launch code moved to the safe"
+          }
+        ]
+      },
+      "expect": {
+        "adds": 0,
+        "refused": 2,
+        "conflicts": 0,
+        "applied": true
+      }
+    },
+    {
+      "op": "import",
+      "apply": true,
+      "bundle": {
+        "tombstones": [
+          {
+            "target_id": "r-x"
+          }
+        ],
+        "records": [
+          {
+            "id": "r-x",
+            "content": "deleted in the same bundle"
+          }
+        ]
+      },
+      "expect": {
+        "tombstones": 1,
+        "adds": 0,
+        "refused": 1,
+        "applied": true
+      }
+    },
+    {
+      "op": "export",
+      "expect": {
+        "records": 0,
+        "tombstones_for_include": [
+          "$a",
+          "r-x"
+        ],
+        "absent": [
+          "launch code",
+          "deleted in the same bundle"
+        ]
+      }
+    },
+    {
+      "op": "recall",
+      "query": "",
+      "expect": {
+        "contents": []
+      }
+    }
+  ]
+}

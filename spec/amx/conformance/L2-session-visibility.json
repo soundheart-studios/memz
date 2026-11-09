@@ -1,0 +1,12 @@
+{
+  "name": "session-visibility",
+  "level": "L2",
+  "description": "A session-private memory is visible to its own session only.",
+  "steps": [
+    {"op": "remember", "draft": {"kind": "fact", "content": "a private note", "visibility": "session", "session": "s-1"}, "expect": {"revision": 1}},
+    {"op": "remember", "draft": {"kind": "fact", "content": "a shared note"}, "expect": {"revision": 1}},
+    {"op": "recall", "query": "note", "session": "s-2", "expect": {"contents": ["a shared note"]}},
+    {"op": "recall", "query": "note", "session": "s-1", "expect": {"contents": ["a private note", "a shared note"]}},
+    {"op": "recall", "query": "note", "expect": {"contents": ["a shared note"]}}
+  ]
+}

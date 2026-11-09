@@ -1,0 +1,13 @@
+{
+  "name": "explicit-over-inferred",
+  "level": "L1",
+  "description": "An inferred revision cannot supersede a memory the user stated.",
+  "steps": [
+    {"op": "remember", "as": "a", "draft": {"kind": "preference", "content": "the user said tabs"}, "expect": {"revision": 1}},
+    {"op": "import", "apply": true, "bundle": {
+      "sources": [{"id": "s-guess", "text": "Saw spaces in one file."}],
+      "records": [{"id": "$a", "revision": 2, "content": "a guess says spaces", "provenance": {"origin": "extractor", "author": "vector", "explicit": false, "method": "vector-extract", "method_version": "1"}, "evidence": [{"source": "s-guess", "source_revision": 1, "role": "supports"}]}]
+    }, "expect": {"error": "conflict"}},
+    {"op": "recall", "query": "", "expect": {"contents": ["the user said tabs"]}}
+  ]
+}

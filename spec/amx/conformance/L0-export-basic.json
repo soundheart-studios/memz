@@ -1,0 +1,51 @@
+{
+  "name": "export-basic",
+  "level": "L0",
+  "description": "An export is a valid bundle: live memories as records, forgotten ones only as content-free tombstones.",
+  "steps": [
+    {
+      "op": "remember",
+      "as": "a",
+      "draft": {
+        "kind": "fact",
+        "content": "alpha fact"
+      },
+      "expect": {
+        "revision": 1
+      }
+    },
+    {
+      "op": "remember",
+      "as": "b",
+      "draft": {
+        "kind": "decision",
+        "content": "beta decision"
+      },
+      "expect": {
+        "revision": 1
+      }
+    },
+    {
+      "op": "forget",
+      "id": "$b",
+      "expect": {
+        "target_id": "$b"
+      }
+    },
+    {
+      "op": "export",
+      "expect": {
+        "records": 1,
+        "active_contents": [
+          "alpha fact"
+        ],
+        "tombstones_for_include": [
+          "$b"
+        ],
+        "absent": [
+          "beta decision"
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,25 @@
+{
+  "name": "import-roundtrip",
+  "level": "L1",
+  "description": "A bundle with a source, an explicit and an inferred record and a link imports whole; importing it again changes nothing.",
+  "steps": [
+    {"op": "import", "apply": true, "bundle": {
+      "sources": [{"id": "s-1", "text": "The daemon listens on a unix socket under run."}],
+      "records": [
+        {"id": "r-1", "content": "the daemon listens on a unix socket", "evidence": [{"source": "s-1", "source_revision": 1, "span": [0, 35], "role": "supports"}]},
+        {"id": "r-2", "content": "the socket lives under run", "provenance": {"origin": "extractor", "author": "vector", "explicit": false, "method": "vector-extract", "method_version": "1"}, "evidence": [{"source": "s-1", "source_revision": 1, "role": "supports"}]}
+      ],
+      "links": [{"id": "l-1", "from": {"id": "r-2", "revision": 1}, "to": {"id": "r-1", "revision": 1}}]
+    }, "expect": {"adds": 4, "conflicts": 0, "refused": 0, "applied": true}},
+    {"op": "recall", "query": "socket", "expect": {"contents": ["the daemon listens on a unix socket", "the socket lives under run"]}},
+    {"op": "import", "apply": true, "bundle": {
+      "sources": [{"id": "s-1", "text": "The daemon listens on a unix socket under run."}],
+      "records": [
+        {"id": "r-1", "content": "the daemon listens on a unix socket", "evidence": [{"source": "s-1", "source_revision": 1, "span": [0, 35], "role": "supports"}]},
+        {"id": "r-2", "content": "the socket lives under run", "provenance": {"origin": "extractor", "author": "vector", "explicit": false, "method": "vector-extract", "method_version": "1"}, "evidence": [{"source": "s-1", "source_revision": 1, "role": "supports"}]}
+      ],
+      "links": [{"id": "l-1", "from": {"id": "r-2", "revision": 1}, "to": {"id": "r-1", "revision": 1}}]
+    }, "expect": {"adds": 0, "supersedes": 0, "noops": 4, "conflicts": 0, "applied": true}},
+    {"op": "export", "expect": {"records": 2, "sources": 1, "links": 1}}
+  ]
+}

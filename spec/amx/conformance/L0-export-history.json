@@ -1,0 +1,10 @@
+{
+  "name": "export-history",
+  "level": "L0",
+  "description": "Corrections keep history: the export holds both revisions, only the newest active.",
+  "steps": [
+    {"op": "remember", "as": "a", "draft": {"kind": "fact", "content": "the old answer"}, "expect": {"revision": 1}},
+    {"op": "correct", "id": "$a", "expected_revision": 1, "content": "the new answer", "expect": {"id": "$a", "revision": 2}},
+    {"op": "export", "expect": {"records": 2, "tombstones": 0, "active_contents": ["the new answer"]}}
+  ]
+}

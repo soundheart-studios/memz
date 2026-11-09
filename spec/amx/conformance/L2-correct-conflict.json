@@ -1,0 +1,11 @@
+{
+  "name": "correct-conflict",
+  "level": "L2",
+  "description": "A correction names the revision it replaces; a stale one is a conflict, never last-write-wins.",
+  "steps": [
+    {"op": "remember", "as": "a", "draft": {"kind": "decision", "content": "first decision"}, "expect": {"revision": 1}},
+    {"op": "correct", "id": "$a", "expected_revision": 1, "content": "second decision", "expect": {"revision": 2}},
+    {"op": "correct", "id": "$a", "expected_revision": 1, "content": "a stale third decision", "expect": {"error": "conflict"}},
+    {"op": "recall", "query": "decision", "expect": {"contents": ["second decision"]}}
+  ]
+}

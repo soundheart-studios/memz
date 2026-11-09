@@ -5,6 +5,8 @@
 //! connection. Stores implement the operations contract on top of it.
 
 mod bundle;
+mod conformance;
+mod ops;
 mod plan;
 mod record;
 mod validate;
@@ -13,6 +15,8 @@ pub use bundle::{
     Bundle, CHECKSUMMED, CHECKSUMS, LINKS, MANIFEST, MAX_FILE_BYTES, RECORDS, SIGNATURE, SOURCES,
     TOMBSTONES, sha256_hex,
 };
+pub use conformance::{Vector, applies, load_vectors, run_vector};
+pub use ops::{Changes, Correction, Draft, MemoryStore, Store, Written, matches};
 pub use plan::{
     Conflict, Held, Holdings, ImportPlan, Item, ItemRef, link_fingerprint, plan_import,
     record_fingerprint, source_fingerprint,

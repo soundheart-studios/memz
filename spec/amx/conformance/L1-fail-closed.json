@@ -1,0 +1,14 @@
+{
+  "name": "fail-closed-scope",
+  "level": "L1",
+  "description": "A record with a scope dimension the store does not support is a conflict, never imported as visible.",
+  "steps": [
+    {"op": "import", "bundle": {"records": [
+      {"id": "r-1", "content": "only for an unknown audience", "scope": {"visibility": "project", "x.amx-unsupported": "yes"}}
+    ]}, "expect": {"adds": 0, "conflicts": 1, "applied": false}},
+    {"op": "import", "apply": true, "bundle": {"records": [
+      {"id": "r-1", "content": "only for an unknown audience", "scope": {"visibility": "project", "x.amx-unsupported": "yes"}}
+    ]}, "expect": {"error": "conflict"}},
+    {"op": "recall", "query": "", "expect": {"contents": []}}
+  ]
+}

@@ -1,0 +1,65 @@
+{
+  "name": "tombstones-first",
+  "level": "L1",
+  "description": "Tombstones in a bundle are applied before its records.",
+  "steps": [
+    {
+      "op": "remember",
+      "as": "a",
+      "draft": {
+        "kind": "fact",
+        "content": "a stale fact"
+      },
+      "expect": {
+        "revision": 1
+      }
+    },
+    {
+      "op": "import",
+      "apply": true,
+      "bundle": {
+        "tombstones": [
+          {
+            "target_id": "$a"
+          }
+        ],
+        "records": [
+          {
+            "id": "r-fresh",
+            "content": "a fresh fact"
+          }
+        ]
+      },
+      "expect": {
+        "tombstones": 1,
+        "adds": 1,
+        "refused": 0,
+        "conflicts": 0,
+        "applied": true
+      }
+    },
+    {
+      "op": "recall",
+      "query": "fact",
+      "expect": {
+        "contents": [
+          "a fresh fact"
+        ]
+      }
+    },
+    {
+      "op": "export",
+      "expect": {
+        "tombstones_for_include": [
+          "$a"
+        ],
+        "active_contents": [
+          "a fresh fact"
+        ],
+        "absent": [
+          "a stale fact"
+        ]
+      }
+    }
+  ]
+}

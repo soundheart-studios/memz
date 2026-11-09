@@ -1,0 +1,11 @@
+{
+  "name": "idempotent-requests",
+  "level": "L2",
+  "description": "A retried write with the same request id returns the first result; a different payload under the same id is a conflict.",
+  "steps": [
+    {"op": "remember", "as": "a", "draft": {"kind": "fact", "content": "written once", "request_id": "req-1"}, "expect": {"revision": 1}},
+    {"op": "remember", "draft": {"kind": "fact", "content": "written once", "request_id": "req-1"}, "expect": {"id": "$a", "revision": 1}},
+    {"op": "remember", "draft": {"kind": "fact", "content": "something else", "request_id": "req-1"}, "expect": {"error": "conflict"}},
+    {"op": "recall", "query": "", "expect": {"contents": ["written once"]}}
+  ]
+}

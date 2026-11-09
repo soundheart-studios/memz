@@ -1,0 +1,12 @@
+{
+  "name": "revision-conflicts",
+  "level": "L1",
+  "description": "An import may continue a revision chain but never fork or skip it.",
+  "steps": [
+    {"op": "remember", "as": "a", "draft": {"kind": "fact", "content": "version one"}, "expect": {"revision": 1}},
+    {"op": "import", "bundle": {"records": [{"id": "$a", "revision": 1, "content": "a forked version one"}]}, "expect": {"conflicts": 1, "noops": 0}},
+    {"op": "import", "bundle": {"records": [{"id": "$a", "revision": 3, "content": "version three"}]}, "expect": {"conflicts": 1}},
+    {"op": "import", "apply": true, "bundle": {"records": [{"id": "$a", "revision": 2, "content": "version two"}]}, "expect": {"supersedes": 1, "conflicts": 0, "applied": true}},
+    {"op": "recall", "query": "version", "expect": {"contents": ["version two"]}}
+  ]
+}

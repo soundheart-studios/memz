@@ -1,0 +1,66 @@
+{
+  "name": "change-feed",
+  "level": "L2",
+  "description": "The change feed returns what changed after a cursor, deletions as tombstones and never the deleted content.",
+  "steps": [
+    {
+      "op": "changes",
+      "since": 0,
+      "as": "c0",
+      "expect": {}
+    },
+    {
+      "op": "remember",
+      "as": "a",
+      "draft": {
+        "kind": "fact",
+        "content": "kept memory"
+      },
+      "expect": {
+        "revision": 1
+      }
+    },
+    {
+      "op": "remember",
+      "as": "b",
+      "draft": {
+        "kind": "fact",
+        "content": "dropped memory"
+      },
+      "expect": {
+        "revision": 1
+      }
+    },
+    {
+      "op": "forget",
+      "id": "$b",
+      "expect": {
+        "target_id": "$b"
+      }
+    },
+    {
+      "op": "changes",
+      "since": "$c0",
+      "as": "c1",
+      "expect": {
+        "tombstones_for_include": [
+          "$b"
+        ],
+        "contents": [
+          "kept memory"
+        ],
+        "absent": [
+          "dropped memory"
+        ]
+      }
+    },
+    {
+      "op": "changes",
+      "since": "$c1",
+      "expect": {
+        "records": 0,
+        "tombstones": 0
+      }
+    }
+  ]
+}
