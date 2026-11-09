@@ -382,3 +382,162 @@ pub fn encode(bundle: &Bundle) -> Result<BTreeMap<String, Vec<u8>>> {
         .map(|(name, bytes)| (name.to_string(), bytes))
         .collect())
 }
+
+/// What this session's view of the store holds, for import planning, and
+/// the identities present in the namespace that this view cannot use
+/// (other sessions' memories, expired ones). Importing onto those would
+/// collide with rows the caller may not see, so plans treat them as
+/// unavailable without saying why.
+pub fn holdings(
+    tx: &Transaction<'_>,
+    namespace: &str,
+    session: &str,
+    now: i64,
+) -> Result<(amx::Holdings, BTreeSet<String>)> {
+    let view = bundle(tx, namespace, session, 0, now)?;
+    let mut held = amx::Holdings::default();
+    for tombstone in &view.tombstones {
+        held.hold_tombstone(tombstone);
+    }
+    for source in &view.sources {
+        held.hold_source(source);
+    }
+    for record in &view.records {
+        held.hold_record(record);
+    }
+    for link in &view.links {
+        held.hold_link(link);
+    }
+    let mut usable: BTreeSet<String> = BTreeSet::new();
+    usable.extend(view.sources.iter().map(|s| s.id.clone()));
+    usable.extend(view.records.iter().map(|r| r.id.clone()));
+    usable.extend(view.links.iter().map(|l| l.id.clone()));
+    usable.extend(view.tombstones.iter().map(|t| t.target_id.clone()));
+    let present: BTreeSet<String> = tx
+        .prepare("SELECT id FROM items UNION SELECT id FROM sources UNION SELECT id FROM edges")?
+        .query_map([], |r| r.get(0))?
+        .collect::<std::result::Result<_, _>>()?;
+    let unavailable = present.difference(&usable).cloned().collect();
+    Ok((held, unavailable))
+}
+
+/// Re-home a single-namespace bundle into `target`. Multi-namespace
+/// bundles must be split by the producer first.
+pub fn map_namespace(mut bundle: Bundle, target: &str) -> Result<Bundle> {
+    if bundle.manifest.namespaces.len() != 1 {
+        return Err(Error::new(
+            "invalid_bundle",
+            "only single-namespace bundles can be imported",
+        ));
+    }
+    bundle.manifest.namespaces[0].id = target.into();
+    for r in &mut bundle.records {
+        r.scope.namespace = target.into();
+    }
+    for s in &mut bundle.sources {
+        s.scope.namespace = target.into();
+    }
+    for l in &mut bundle.links {
+        l.scope.namespace = target.into();
+    }
+    for t in &mut bundle.tombstones {
+        t.scope.namespace = target.into();
+    }
+    Ok(bundle)
+}
+
+fn item_scope(item: &amx::Item) -> &Scope {
+    match item {
+        amx::Item::Record(r) => &r.scope,
+        amx::Item::Source(s) => &s.scope,
+        amx::Item::Link(l) => &l.scope,
+    }
+}
+
+fn item_expiry(item: &amx::Item) -> Option<&String> {
+    match item {
+        amx::Item::Record(r) => r.expires_at.as_ref(),
+        amx::Item::Source(s) => s.expires_at.as_ref(),
+        amx::Item::Link(_) => None,
+    }
+}
+
+/// Memz-specific limits on a plan, applied after the shared planner:
+/// another session's private memory, identities this view cannot use and
+/// already-expired content become conflicts, as do links left without an
+/// endpoint and tombstones aimed at memories this session cannot see.
+pub fn restrict(
+    plan: &mut amx::ImportPlan,
+    session: &str,
+    unavailable: &BTreeSet<String>,
+    now: i64,
+) {
+    let mut blocked: BTreeSet<(String, u64)> = BTreeSet::new();
+    let mut conflicts = Vec::new();
+    let reason = |item: &amx::Item| -> Option<String> {
+        let scope = item_scope(item);
+        if scope.visibility == "session" && scope.session.as_deref() != Some(session) {
+            return Some("session-private to another session".into());
+        }
+        if unavailable.contains(item.id()) {
+            return Some("identity is not available to this session".into());
+        }
+        if item_expiry(item)
+            .and_then(|at| amx::parse_timestamp(at))
+            .is_some_and(|at| at <= now)
+        {
+            return Some("expired content is not imported".into());
+        }
+        None
+    };
+    for list in [&mut plan.adds, &mut plan.supersedes] {
+        list.retain(|item| match reason(item) {
+            Some(why) => {
+                if let amx::Item::Record(r) = item {
+                    blocked.insert((r.id.clone(), r.revision));
+                }
+                conflicts.push(amx::Conflict {
+                    item: item.reference(),
+                    reason: why,
+                });
+                false
+            }
+            None => true,
+        });
+    }
+    for list in [&mut plan.adds, &mut plan.supersedes] {
+        list.retain(|item| {
+            let amx::Item::Link(l) = item else {
+                return true;
+            };
+            let dangling = [&l.from, &l.to]
+                .iter()
+                .any(|end| blocked.contains(&(end.id.clone(), end.revision)));
+            if dangling {
+                conflicts.push(amx::Conflict {
+                    item: item.reference(),
+                    reason: "an endpoint is not importable".into(),
+                });
+            }
+            !dangling
+        });
+    }
+    plan.tombstones.retain(|t| {
+        let foreign = (t.scope.visibility == "session"
+            && t.scope.session.as_deref() != Some(session))
+            || unavailable.contains(&t.target_id);
+        if foreign {
+            conflicts.push(amx::Conflict {
+                item: amx::ItemRef {
+                    kind: "tombstone",
+                    namespace: t.scope.namespace.clone(),
+                    id: t.target_id.clone(),
+                    revision: 0,
+                },
+                reason: "deletion targets a memory this session cannot see".into(),
+            });
+        }
+        !foreign
+    });
+    plan.conflicts.extend(conflicts);
+}

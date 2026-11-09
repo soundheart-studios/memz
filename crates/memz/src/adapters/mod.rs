@@ -382,15 +382,16 @@ fn dispatch_with_engine(
             if let Some(name) = v["name"].as_str() {
                 let paths = crate::export::publish(state, name, &export, &cancel)?;
                 Ok(
-                    json!({"namespace":export.namespace,"revision":export.revision,"jsonl_path":paths.0,"markdown_path":paths.1,"html_path":state.path.join("exports").join(format!("{name}.html"))}),
+                    json!({"namespace":export.namespace,"revision":export.revision,"jsonl_path":paths.0,"markdown_path":paths.1,"html_path":state.path.join("exports").join(format!("{name}.html")),"amx_path":state.path.join("exports").join(format!("{name}.amx"))}),
                 )
             } else {
                 encoded(export)
             }
         }
-        "validate_import" => {
-            crate::import::validate(&cat, &cap, &mut store, string(v, "jsonl")?, 65536)
-        }
+        "validate_import" => match v["bundle"].as_str() {
+            Some(name) => crate::import::validate_bundle(&cat, &cap, &mut store, name),
+            None => crate::import::validate(&cat, &cap, &mut store, string(v, "jsonl")?, 65536),
+        },
         "remember" => {
             let scope = if v["visibility"].as_str() == Some("session") {
                 Scope::session(ns, cap.session())
@@ -578,5 +579,5 @@ pub fn mcp(state: &StateRoot, client: &Client, request: &Value) -> Value {
     }
 }
 fn tools() -> Vec<Value> {
-    [("remember",vec!["request_id","text"]),("recall",vec!["query"]),("inspect",vec!["id"]),("correct",vec!["id","expected_revision","text"]),("forget",vec!["id","expected_revision"]),("export",vec![]),("validate_import",vec!["jsonl"]),("status",vec![]),("relate",vec!["relationship"]),("extraction_policy",vec![])].into_iter().map(|(name,required)|json!({"name":name,"description":format!("{name} memory in the bound project; identity and grants are managed outside tools"),"inputSchema":{"type":"object","properties":{"graph":{"type":"boolean","description":"Opt-in bounded graph expansion; requires relations allowlist."},"relations":{"type":"array","items":{"enum":["supports","supersedes","contradicts","applies_to","requires","mitigates"]},"minItems":1,"maxItems":6},"impact":{"type":"boolean","description":"Inspect only: preview current relationships and derivatives affected by correction/forgetting."},"relationship":{"type":"object","description":"Inferred proposal only. Fields: from/to {id,revision}, relation, qualifiers object, evidence [{source,revision,start,end}] with exact UTF-8 byte spans. Never user-confirmed by this tool."},"name":{"type":"string"},"jsonl":{"type":"string"},"request_id":{"type":"string"},"text":{"type":"string"},"query":{"type":"string"},"id":{"type":"string"},"expected_revision":{"type":"integer"},"budget":{"type":"integer","minimum":256,"maximum":8000},"history":{"type":"boolean"},"visibility":{"enum":["project","session"]},"kind":{"type":"string"},"slot":{"type":"string"}},"required":required,"additionalProperties":false}})).collect()
+    [("remember",vec!["request_id","text"]),("recall",vec!["query"]),("inspect",vec!["id"]),("correct",vec!["id","expected_revision","text"]),("forget",vec!["id","expected_revision"]),("export",vec![]),("validate_import",vec![]),("status",vec![]),("relate",vec!["relationship"]),("extraction_policy",vec![])].into_iter().map(|(name,required)|json!({"name":name,"description":format!("{name} memory in the bound project; identity and grants are managed outside tools"),"inputSchema":{"type":"object","properties":{"graph":{"type":"boolean","description":"Opt-in bounded graph expansion; requires relations allowlist."},"relations":{"type":"array","items":{"enum":["supports","supersedes","contradicts","applies_to","requires","mitigates"]},"minItems":1,"maxItems":6},"impact":{"type":"boolean","description":"Inspect only: preview current relationships and derivatives affected by correction/forgetting."},"relationship":{"type":"object","description":"Inferred proposal only. Fields: from/to {id,revision}, relation, qualifiers object, evidence [{source,revision,start,end}] with exact UTF-8 byte spans. Never user-confirmed by this tool."},"name":{"type":"string"},"jsonl":{"type":"string"},"bundle":{"type":"string","description":"validate_import only: name of an .amx bundle in the state exports or imports folder. Dry run; nothing is written."},"request_id":{"type":"string"},"text":{"type":"string"},"query":{"type":"string"},"id":{"type":"string"},"expected_revision":{"type":"integer"},"budget":{"type":"integer","minimum":256,"maximum":8000},"history":{"type":"boolean"},"visibility":{"enum":["project","session"]},"kind":{"type":"string"},"slot":{"type":"string"}},"required":required,"additionalProperties":false}})).collect()
 }
