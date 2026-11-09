@@ -6,6 +6,7 @@
 
 mod bundle;
 mod conformance;
+mod markdown;
 mod ops;
 mod plan;
 mod record;
@@ -16,6 +17,7 @@ pub use bundle::{
     TOMBSTONES, sha256_hex,
 };
 pub use conformance::{Vector, applies, load_vectors, run_vector};
+pub use markdown::{Change, Difference, diff_tree, from_markdown, render_tree, to_markdown};
 pub use ops::{Changes, Correction, Draft, MemoryStore, Store, Written, matches};
 pub use plan::{
     Conflict, Held, Holdings, ImportPlan, Item, ItemRef, link_fingerprint, plan_import,
