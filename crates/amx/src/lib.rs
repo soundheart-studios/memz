@@ -4,9 +4,14 @@
 //! The crate is pure logic: it never opens a database or a network
 //! connection. Stores implement the operations contract on top of it.
 
+mod bundle;
 mod record;
 mod validate;
 
+pub use bundle::{
+    Bundle, CHECKSUMMED, CHECKSUMS, LINKS, MANIFEST, MAX_FILE_BYTES, RECORDS, SIGNATURE, SOURCES,
+    TOMBSTONES, sha256_hex,
+};
 pub use record::{
     Counts, Evidence, Generator, Link, Manifest, NamespaceCursor, Object, Provenance, Record, Ref,
     Scope, Source, Tombstone, VERSION, format_timestamp, parse_timestamp, read_jsonl, write_jsonl,
