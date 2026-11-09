@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://amx.dev/schema/0.1/link.schema.json",
+  "title": "AMX link",
+  "type": "object",
+  "required": ["amx", "id", "revision", "from", "to", "relation", "scope", "provenance", "status", "valid_from", "recorded_at"],
+  "properties": {
+    "amx": { "const": "0.1" },
+    "id": { "$ref": "record.schema.json#/$defs/id" },
+    "revision": { "$ref": "record.schema.json#/$defs/revision" },
+    "from": { "$ref": "record.schema.json#/$defs/ref" },
+    "to": { "$ref": "record.schema.json#/$defs/ref" },
+    "relation": { "type": "string", "pattern": "^(supports|supersedes|contradicts|applies_to|requires|mitigates|[a-z][a-z0-9_]*\\.[A-Za-z0-9_.-]+)$" },
+    "qualifiers": { "type": "object" },
+    "scope": { "$ref": "record.schema.json#/$defs/scope" },
+    "provenance": { "$ref": "record.schema.json#/$defs/provenance" },
+    "evidence": { "type": "array", "items": { "$ref": "record.schema.json#/$defs/evidence" } },
+    "status": { "enum": ["active", "superseded", "invalid"] },
+    "valid_from": { "$ref": "record.schema.json#/$defs/timestamp" },
+    "valid_to": { "$ref": "record.schema.json#/$defs/timestamp" },
+    "recorded_at": { "$ref": "record.schema.json#/$defs/timestamp" },
+    "attributes": { "$ref": "record.schema.json#/$defs/attributes" }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "provenance": { "properties": { "explicit": { "const": false } } } } },
+      "then": { "required": ["evidence"], "properties": { "evidence": { "minItems": 1 } } }
+    }
+  ]
+}

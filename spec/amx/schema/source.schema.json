@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://amx.dev/schema/0.1/source.schema.json",
+  "title": "AMX source",
+  "type": "object",
+  "required": ["amx", "id", "revision", "origin", "author", "text", "content_hash", "scope", "recorded_at"],
+  "properties": {
+    "amx": { "const": "0.1" },
+    "id": { "$ref": "record.schema.json#/$defs/id" },
+    "revision": { "$ref": "record.schema.json#/$defs/revision" },
+    "origin": { "enum": ["user", "agent", "extractor", "import", "system"] },
+    "author": { "type": "string", "minLength": 1 },
+    "external_ref": { "type": "string" },
+    "text": { "type": "string" },
+    "content_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "scope": { "$ref": "record.schema.json#/$defs/scope" },
+    "recorded_at": { "$ref": "record.schema.json#/$defs/timestamp" },
+    "event_at": { "$ref": "record.schema.json#/$defs/timestamp" },
+    "expires_at": { "$ref": "record.schema.json#/$defs/timestamp" },
+    "attributes": { "$ref": "record.schema.json#/$defs/attributes" }
+  }
+}

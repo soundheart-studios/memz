@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://amx.dev/schema/0.1/manifest.schema.json",
+  "title": "AMX bundle manifest",
+  "type": "object",
+  "required": ["amx", "bundle_id", "generator", "created_at", "namespaces", "counts"],
+  "properties": {
+    "amx": { "const": "0.1" },
+    "bundle_id": { "$ref": "record.schema.json#/$defs/id" },
+    "generator": {
+      "type": "object",
+      "required": ["name", "version"],
+      "properties": { "name": { "type": "string", "minLength": 1 }, "version": { "type": "string", "minLength": 1 } }
+    },
+    "created_at": { "$ref": "record.schema.json#/$defs/timestamp" },
+    "namespaces": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "cursor"],
+        "properties": { "id": { "type": "string", "minLength": 1 }, "cursor": { "type": "integer", "minimum": 0 } }
+      }
+    },
+    "counts": {
+      "type": "object",
+      "required": ["records", "sources", "links", "tombstones"],
+      "properties": {
+        "records": { "type": "integer", "minimum": 0 },
+        "sources": { "type": "integer", "minimum": 0 },
+        "links": { "type": "integer", "minimum": 0 },
+        "tombstones": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "capabilities": { "type": "array", "items": { "type": "string" } },
+    "omitted": { "type": "integer", "minimum": 0 },
+    "attributes": { "$ref": "record.schema.json#/$defs/attributes" }
+  }
+}

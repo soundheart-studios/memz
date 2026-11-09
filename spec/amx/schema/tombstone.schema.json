@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://amx.dev/schema/0.1/tombstone.schema.json",
+  "title": "AMX tombstone",
+  "type": "object",
+  "required": ["amx", "id", "target_type", "target_id", "scope", "deleted_at", "reason", "actor"],
+  "properties": {
+    "amx": { "const": "0.1" },
+    "id": { "$ref": "record.schema.json#/$defs/id" },
+    "target_type": { "enum": ["record", "source", "link"] },
+    "target_id": { "$ref": "record.schema.json#/$defs/id" },
+    "scope": { "$ref": "record.schema.json#/$defs/scope" },
+    "deleted_at": { "$ref": "record.schema.json#/$defs/timestamp" },
+    "reason": { "enum": ["user_request", "retention", "policy", "correction", "other"] },
+    "actor": { "type": "string", "minLength": 1 },
+    "derived": { "type": "array", "items": { "$ref": "record.schema.json#/$defs/id" } },
+    "attributes": { "$ref": "record.schema.json#/$defs/attributes" }
+  },
+  "not": { "anyOf": [{ "required": ["content"] }, { "required": ["text"] }] }
+}
