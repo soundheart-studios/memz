@@ -5,12 +5,17 @@
 //! connection. Stores implement the operations contract on top of it.
 
 mod bundle;
+mod plan;
 mod record;
 mod validate;
 
 pub use bundle::{
     Bundle, CHECKSUMMED, CHECKSUMS, LINKS, MANIFEST, MAX_FILE_BYTES, RECORDS, SIGNATURE, SOURCES,
     TOMBSTONES, sha256_hex,
+};
+pub use plan::{
+    Conflict, Held, Holdings, ImportPlan, Item, ItemRef, link_fingerprint, plan_import,
+    record_fingerprint, source_fingerprint,
 };
 pub use record::{
     Counts, Evidence, Generator, Link, Manifest, NamespaceCursor, Object, Provenance, Record, Ref,
