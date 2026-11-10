@@ -19,6 +19,9 @@ use amx::{
 use rusqlite::{Transaction, params};
 use std::collections::{BTreeMap, BTreeSet};
 
+mod store;
+pub use store::MemzStore;
+
 /// The scope AMX readers see for a Memz row.
 pub fn scope(namespace: &str, visibility: &str, session: &str) -> Scope {
     Scope {
@@ -32,25 +35,52 @@ pub fn scope(namespace: &str, visibility: &str, session: &str) -> Scope {
     }
 }
 
-/// Memz source origins to AMX provenance origins.
+/// Memz source origins to AMX provenance origins. The mapping is
+/// one-to-one, so an imported origin exports unchanged.
 pub fn origin_to_amx(origin: &str) -> &'static str {
     match origin {
         "user" => "user",
         "assistant" => "agent",
         "import" => "import",
+        "extractor" => "extractor",
         _ => "system",
     }
 }
 
-/// AMX provenance origins to Memz source origins.
+/// AMX provenance origins to Memz source origins. `extractor` has no
+/// native Memz origin and is stored as is.
 pub fn origin_from_amx(origin: &str) -> &'static str {
     match origin {
         "user" => "user",
-        "agent" | "extractor" => "assistant",
+        "agent" => "assistant",
         "import" => "import",
+        "extractor" => "extractor",
         _ => "tool",
     }
 }
+
+/// Evidence methods Memz records for its own bookkeeping. Explicit
+/// memories do not export them as provenance methods.
+const INTERNAL_METHODS: &[&str] = &[
+    "direct",
+    "correction",
+    "import",
+    "user-assertion",
+    "agent-proposal",
+];
+
+/// The evidence row an import adds for a record's own synthetic passage.
+/// Memz needs it; the record never claimed it, so it is not exported.
+const OWN_SOURCE: &str = "amx-own-source";
+/// The `external_ref` marking a synthetic own-source passage: kept for Memz,
+/// never exported as a source.
+const OWN_SOURCE_REF: &str = "amx:own-source";
+
+/// Reserved link qualifiers holding the AMX provenance Memz edges have no
+/// columns for. They are moved back into the link on export.
+const LINK_ORIGIN: &str = "amx.origin";
+const LINK_AUTHOR: &str = "amx.author";
+const LINK_RECORDED_AT: &str = "amx.recorded_at";
 
 fn role(role: &str) -> String {
     match role {
@@ -102,7 +132,7 @@ fn evidence_rows(
     revision: i64,
 ) -> Result<Vec<EvidenceRow>> {
     let sql = format!(
-        "SELECT source_id,source_revision,span_start,span_end,role,method,method_version FROM evidence WHERE {column}_id=?1 AND {column}_revision=?2 ORDER BY id"
+        "SELECT source_id,source_revision,span_start,span_end,role,method,method_version FROM evidence WHERE {column}_id=?1 AND {column}_revision=?2 AND method<>'{OWN_SOURCE}' ORDER BY id"
     );
     let mut stmt = tx.prepare(&sql)?;
     let rows = stmt
@@ -128,7 +158,11 @@ fn evidence_rows(
 }
 
 fn provenance(origin: &str, author: &str, explicit: bool, evidence: &[EvidenceRow]) -> Provenance {
-    let first = evidence.first();
+    // Inferred memories always say how they were derived; explicit ones
+    // only when the method is more than Memz's own bookkeeping.
+    let first = evidence
+        .first()
+        .filter(|e| !explicit || !INTERNAL_METHODS.contains(&e.method.as_str()));
     Provenance {
         origin: origin.into(),
         author: if author.is_empty() {
@@ -177,6 +211,21 @@ pub fn bundle(
             let expires_at: Option<i64> = r.get(11)?;
             let visibility: String = r.get(9)?;
             let session_id: String = r.get(10)?;
+            let external_ref: Option<String> = r.get(4)?;
+            source_meta.insert(
+                (id.clone(), revision),
+                SourceMeta(
+                    origin.clone(),
+                    author.clone(),
+                    event_at,
+                    ingested_at,
+                    expires_at,
+                ),
+            );
+            if external_ref.as_deref() == Some(OWN_SOURCE_REF) {
+                // An import's bookkeeping passage: the record carries its text.
+                continue;
+            }
             sources.push(Source {
                 amx: VERSION.into(),
                 id: id.clone(),
@@ -187,7 +236,7 @@ pub fn bundle(
                 } else {
                     author.clone()
                 },
-                external_ref: r.get(4)?,
+                external_ref,
                 text: r.get(5)?,
                 content_hash: format!("sha256:{}", r.get::<_, String>(6)?),
                 scope: scope(namespace, &visibility, &session_id),
@@ -197,10 +246,6 @@ pub fn bundle(
                 attributes: None,
                 extra: Default::default(),
             });
-            source_meta.insert(
-                (id, revision),
-                SourceMeta(origin, author, event_at, ingested_at, expires_at),
-            );
         }
     }
     let live_source = |id: &str| !dead.contains(id);
@@ -283,8 +328,14 @@ pub fn bundle(
                         .map(|m| m.1.clone())
                 })
                 .unwrap_or_default();
-            let qualifiers: Object =
+            let mut qualifiers: Object =
                 serde_json::from_str(&r.get::<_, String>(7)?).unwrap_or_default();
+            let reserved = |q: &mut Object, key: &str| {
+                q.remove(key).and_then(|v| v.as_str().map(String::from))
+            };
+            let stored_origin = reserved(&mut qualifiers, LINK_ORIGIN);
+            let stored_author = reserved(&mut qualifiers, LINK_AUTHOR);
+            let stored_recorded_at = reserved(&mut qualifiers, LINK_RECORDED_AT);
             let visibility: String = r.get(10)?;
             let session_id: String = r.get(11)?;
             let valid_from: i64 = r.get(12)?;
@@ -305,8 +356,10 @@ pub fn bundle(
                 qualifiers: (!qualifiers.is_empty()).then_some(qualifiers),
                 scope: scope(namespace, &visibility, &session_id),
                 provenance: provenance(
-                    if explicit { "user" } else { "agent" },
-                    &author,
+                    stored_origin
+                        .as_deref()
+                        .unwrap_or(if explicit { "user" } else { "agent" }),
+                    stored_author.as_deref().unwrap_or(&author),
                     explicit,
                     &evidence,
                 ),
@@ -315,7 +368,7 @@ pub fn bundle(
                 status: r.get(9)?,
                 valid_from: clock.see(valid_from),
                 valid_to: valid_to.map(|t| clock.see(t)),
-                recorded_at: format_timestamp(valid_from),
+                recorded_at: stored_recorded_at.unwrap_or_else(|| format_timestamp(valid_from)),
                 attributes: None,
                 extra: Default::default(),
             });
@@ -471,6 +524,10 @@ pub fn map_namespace(mut bundle: Bundle, target: &str) -> Result<Bundle> {
     bundle.manifest.namespaces[0].id = target.into();
     for r in &mut bundle.records {
         r.scope.namespace = target.into();
+        // Plain text is the default; Memz stores it as no content type.
+        if r.content_type.as_deref() == Some("text/plain") {
+            r.content_type = None;
+        }
     }
     for s in &mut bundle.sources {
         s.scope.namespace = target.into();
@@ -526,15 +583,7 @@ pub fn restrict(
         {
             return Some("expired content is not imported".into());
         }
-        match item {
-            amx::Item::Record(r) if !KINDS.contains(&r.kind.as_str()) => {
-                Some(format!("Memz cannot store kind {:?}", r.kind))
-            }
-            amx::Item::Link(l) if !crate::graph::RELATIONS.contains(&l.relation.as_str()) => {
-                Some(format!("Memz cannot store relation {:?}", l.relation))
-            }
-            _ => None,
-        }
+        unrepresentable(item)
     };
     for list in [&mut plan.adds, &mut plan.supersedes] {
         list.retain(|item| match reason(item) {
@@ -733,46 +782,71 @@ fn insert_record(
     let (visibility, session) = visibility_of(&r.scope);
     let revision = r.revision as i64;
     let evidence = r.evidence.as_deref().unwrap_or_default();
-    // Memz keeps each memory's own passage as its source. Use the first
-    // evidence passage when it is exactly the content; otherwise keep the
-    // content as a synthetic source of its own.
-    let own = match evidence.first() {
-        Some(e)
-            if source_text(tx, &e.source, e.source_revision as i64)?.as_deref()
-                == Some(r.content.as_str()) =>
-        {
-            (e.source.clone(), e.source_revision as i64, false)
+    // Memz keeps each memory's own passage as its source, and exports the
+    // record's provenance and times from it. Use the first evidence passage
+    // when it is exactly that (same text, origin, author and times), so a
+    // Memz export imports back unchanged; otherwise keep the content as a
+    // synthetic source of its own.
+    let reusable = match evidence.first() {
+        Some(e) => {
+            use rusqlite::OptionalExtension;
+            let row: Option<(String, SourceMeta)> = tx
+                .query_row(
+                    "SELECT text,origin,author,event_at,ingested_at,expires_at FROM sources WHERE id=?1 AND revision=?2 AND status<>'deleted'",
+                    params![e.source, e.source_revision as i64],
+                    |s| {
+                        Ok((
+                            s.get(0)?,
+                            SourceMeta(s.get(1)?, s.get(2)?, s.get(3)?, s.get(4)?, s.get(5)?),
+                        ))
+                    },
+                )
+                .optional()?;
+            row.is_some_and(
+                |(text, SourceMeta(origin, author, event, ingested, expires))| {
+                    text == r.content
+                        && origin_to_amx(&origin) == r.provenance.origin
+                        && author == r.provenance.author
+                        && Some(ingested) == amx::parse_timestamp(&r.recorded_at)
+                        && event == r.event_at.as_deref().and_then(amx::parse_timestamp)
+                        && expires == r.expires_at.as_deref().and_then(amx::parse_timestamp)
+                },
+            )
         }
+        None => false,
+    };
+    let own = match evidence.first() {
+        Some(e) if reusable => (e.source.clone(), e.source_revision as i64, false),
         _ => (synthetic("source", &r.id), revision, true),
     };
     if own.2 && source_text(tx, &own.0, own.1)?.is_none() {
         let expires_at = optional_at(r.expires_at.as_ref())?;
-        tx.execute("INSERT INTO sources(id,revision,origin,author,text,content_hash,event_at,ingested_at,visibility,session_id,status,retention,expires_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,'active',?11,?12)",params![own.0,own.1,origin_from_amx(&r.provenance.origin),r.provenance.author,r.content,crate::capture::digest(r.content.as_bytes()),optional_at(r.event_at.as_ref())?,at(&r.recorded_at)?,visibility,session,if expires_at.is_some(){"temporary"}else{"durable"},expires_at])?;
+        tx.execute("INSERT INTO sources(id,revision,origin,author,text,content_hash,event_at,ingested_at,visibility,session_id,status,retention,expires_at,external_ref) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,'active',?11,?12,?13)",params![own.0,own.1,origin_from_amx(&r.provenance.origin),r.provenance.author,r.content,crate::capture::digest(r.content.as_bytes()),optional_at(r.event_at.as_ref())?,at(&r.recorded_at)?,visibility,session,if expires_at.is_some(){"temporary"}else{"durable"},expires_at,OWN_SOURCE_REF])?;
         supersede_older_sources(tx, &own.0)?;
     }
     let valid_from = at(&r.valid_from)?;
     if r.status == "active" {
         tx.execute(
-            "UPDATE items SET status='superseded',valid_to=coalesce(valid_to,?2) WHERE id=?1 AND status='active'",
+            "UPDATE items SET status='superseded',valid_to=coalesce(valid_to,max(valid_from,?2)) WHERE id=?1 AND status='active'",
             params![r.id, valid_from],
         )?;
     }
     tx.execute("INSERT INTO items(id,revision,kind,content,explicit,status,source_id,source_revision,visibility,session_id,valid_from,valid_to,slot) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13)",params![r.id,revision,r.kind,r.content,r.provenance.explicit,r.status,own.0,own.1,visibility,session,valid_from,optional_at(r.valid_to.as_ref())?,r.key])?;
     let written = insert_evidence(tx, ("item", &r.id, revision), evidence, &r.provenance)?;
     if own.2 || written == 0 {
-        let own_evidence = Evidence {
-            source: own.0.clone(),
-            source_revision: own.1 as u64,
-            span: Some([0, r.content.len() as u64]),
-            role: "supports".into(),
-            extra: Default::default(),
+        // Memz links every memory to its own passage. When the record did
+        // not claim it, the row is bookkeeping and stays out of exports,
+        // unless it is the only evidence an inferred record would have.
+        let hidden = r.provenance.explicit || written > 0;
+        let (method, version) = if hidden {
+            (OWN_SOURCE, "1")
+        } else {
+            (
+                r.provenance.method.as_deref().unwrap_or("import"),
+                r.provenance.method_version.as_deref().unwrap_or("1"),
+            )
         };
-        insert_evidence(
-            tx,
-            ("item", &r.id, revision),
-            &[own_evidence],
-            &r.provenance,
-        )?;
+        tx.execute("INSERT INTO evidence(item_id,item_revision,source_id,source_revision,span_start,span_end,role,method,method_version) VALUES(?1,?2,?3,?4,0,?5,'supports',?6,?7)",params![r.id,revision,own.0,own.1,r.content.len() as i64,method,version])?;
     }
     if r.status == "active" {
         tx.execute(
@@ -796,12 +870,18 @@ fn insert_link(tx: &Transaction<'_>, l: &Link) -> Result<()> {
             (k.clone(), text)
         })
         .collect();
+    let mut qualifiers = qualifiers;
+    // Edges have no columns for these; keep them so the link exports as it
+    // was imported.
+    qualifiers.insert(LINK_ORIGIN.into(), l.provenance.origin.clone());
+    qualifiers.insert(LINK_AUTHOR.into(), l.provenance.author.clone());
+    qualifiers.insert(LINK_RECORDED_AT.into(), l.recorded_at.clone());
     let qualifiers = serde_json::to_string(&qualifiers)
         .map_err(|_| Error::new("serialization", "qualifiers"))?;
     let valid_from = at(&l.valid_from)?;
     if l.status == "active" {
         tx.execute(
-            "UPDATE edges SET status='superseded',valid_to=coalesce(valid_to,?2) WHERE id=?1 AND status='active'",
+            "UPDATE edges SET status='superseded',valid_to=coalesce(valid_to,max(valid_from,?2)) WHERE id=?1 AND status='active'",
             params![l.id, valid_from],
         )?;
     }
@@ -914,4 +994,50 @@ pub fn apply(
         )?;
     }
     Ok(wrote)
+}
+
+/// Why Memz cannot hold an item without losing part of it, if it cannot.
+/// AMX readers must re-export what they import; Memz refuses what it could
+/// not give back rather than dropping it silently.
+fn unrepresentable(item: &amx::Item) -> Option<String> {
+    let extras = |attributes: &Option<Object>, extra: &Object| {
+        attributes.as_ref().is_some_and(|a| !a.is_empty()) || !extra.is_empty()
+    };
+    match item {
+        amx::Item::Record(r) => {
+            if !KINDS.contains(&r.kind.as_str()) {
+                Some(format!("Memz cannot store kind {:?}", r.kind))
+            } else if r.content_type.is_some() {
+                Some("Memz stores plain text only".into())
+            } else if r.supersedes.is_some() {
+                Some("Memz cannot store supersedes on a record".into())
+            } else if extras(&r.attributes, &r.extra)
+                || !r.provenance.extra.is_empty()
+                || !r.scope.extra.is_empty()
+                || r.evidence.iter().flatten().any(|e| !e.extra.is_empty())
+            {
+                Some("Memz cannot preserve attributes or unknown fields".into())
+            } else {
+                None
+            }
+        }
+        amx::Item::Source(s) => extras(&s.attributes, &s.extra)
+            .then(|| "Memz cannot preserve attributes or unknown fields".into()),
+        amx::Item::Link(l) => {
+            if !crate::graph::RELATIONS.contains(&l.relation.as_str()) {
+                Some(format!("Memz cannot store relation {:?}", l.relation))
+            } else if l
+                .qualifiers
+                .iter()
+                .flatten()
+                .any(|(k, v)| !v.is_string() || k.starts_with("amx."))
+            {
+                Some("Memz stores string qualifiers only, outside the amx. prefix".into())
+            } else if extras(&l.attributes, &l.extra) || !l.provenance.extra.is_empty() {
+                Some("Memz cannot preserve attributes or unknown fields".into())
+            } else {
+                None
+            }
+        }
+    }
 }
