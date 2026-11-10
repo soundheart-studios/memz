@@ -192,6 +192,10 @@ lexical results with whatever embeddings are ready. See
 - **Exports** are readable views of what the exporting client may see, including
   its own session-private memories. The HTML view has no JavaScript and no network
   access. Exports are not backups. See [viewer](docs/viewer.md).
+- **Portable memory**: every export also writes an [AMX](docs/amx.md) bundle
+  (`<name>.amx`), an open, verifiable format other tools can read. `validate_import`
+  previews importing one; `memz import` (CLI only) applies it without ever bringing
+  back forgotten memories. See [AMX](docs/amx.md).
 - **Forgetting** stops live retrieval immediately and schedules logical cleanup.
   It does **not** guarantee secure erasure of disk bytes or of existing exports and
   backups, so don't store secrets in memory.
@@ -245,6 +249,7 @@ false positives and negatives. It is not a general accuracy rate.
 | [Relationships](docs/graph.md) | Evidence-backed edges, authority, graph recall, impact preview |
 | [Recovery](docs/recovery.md) | Backup, restore, relocation, retained copies |
 | [Viewer](docs/viewer.md) | Static HTML/Markdown/JSONL exports |
+| [AMX](docs/amx.md) | Portable memory bundles: export, validate, CLI import, conformance |
 | [Platforms](docs/platforms.md) | Supported targets, CI, local cross-platform checks, Windows inventory |
 | [Qualification](docs/qualification.md) | Measurement protocol and results |
 | [Release evidence](docs/release-evidence.md) | What was validated, what remains bounded |
