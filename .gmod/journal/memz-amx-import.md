@@ -1,0 +1,5 @@
+# memz-amx-import: Import .amx bundles from the CLI only
+
+- 2026-11-09T23:58:25.729Z check: red (export from one store and import into a fresh one reproduces the same recall results, a repeat import changes nothing, and forgotten memories stay forgotten)
+- 2026-11-10T00:01:24.408Z check: green
+- 2026-11-10T00:01:30.641Z dev@soundheart.io: Import re-plans inside its own immediate write transaction, so the applied plan is exactly what was checked. Tombstones for identities the store never held become content-free placeholder rows (a deleted source plus a deleted item) so the deletion is durable and later imports stay refused. Each imported record keeps its own passage as its Memz source: the first evidence source when its text equals the content, otherwise a synthetic source derived from the record id (stable across re-imports). Custom kinds and relations Memz cannot store are conflicts. Known limit: link tombstones for links this store never held are not persisted (a link cannot exist without endpoints).

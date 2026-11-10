@@ -18,7 +18,7 @@ fn main() {
 fn invalid() -> Error {
     Error::new(
         "usage",
-        "memz backup DEST [NAMESPACE] | restore BUNDLE NEW_STATE sqlite|jsonl | relocate NEW_STATE | rebind NAMESPACE ROOT | init [ROOT [PRINCIPAL [SESSION]]] [--no-agents] | serve | grant PRINCIPAL NAMESPACE [write] | revoke PRINCIPAL NAMESPACE | call|mcp|capture --client FILE [--include-generated]",
+        "memz backup DEST [NAMESPACE] | restore BUNDLE NEW_STATE sqlite|jsonl | relocate NEW_STATE | rebind NAMESPACE ROOT | init [ROOT [PRINCIPAL [SESSION]]] [--no-agents] | serve | grant PRINCIPAL NAMESPACE [write] | revoke PRINCIPAL NAMESPACE | import --client FILE BUNDLE [--apply [--skip-conflicts]] | call|mcp|capture --client FILE [--include-generated]",
     )
 }
 /// The enclosing git work tree, so subdirectories share one namespace;
@@ -200,6 +200,40 @@ fn run() -> Result<()> {
         "revoke" if args.len() == 3 => {
             Catalog::open(state)?.revoke(&args[1], &args[2])?;
             println!("{{\"ok\":true}}");
+        }
+        // Trusted and CLI-only: importing other people's memory is never a
+        // model tool. Dry run unless --apply.
+        "import" if args.len() >= 4 && args[1] == "--client" => {
+            let flags = &args[4..];
+            if flags
+                .iter()
+                .any(|f| f != "--apply" && f != "--skip-conflicts")
+            {
+                return Err(invalid());
+            }
+            let client = adapters::load_client(Path::new(&args[2]))?;
+            let cat = Catalog::open(state.clone())?;
+            let cap = cat.capability(&client.binding.principal, &client.binding.session)?;
+            let mut store = memz::store::NamespaceStore::open(&state, &client.namespace)?;
+            let path = Path::new(&args[3]);
+            let bundle = if std::fs::symlink_metadata(path).is_ok() {
+                amx::Bundle::read(path).map_err(|e| Error::new("invalid_bundle", e.to_string()))?
+            } else {
+                memz::import::read_bundle(&cat, &args[3])?
+            };
+            let report = if flags.iter().any(|f| f == "--apply") {
+                memz::import::apply_bundle(
+                    &cat,
+                    &cap,
+                    &mut store,
+                    bundle,
+                    flags.iter().any(|f| f == "--skip-conflicts"),
+                )?
+            } else {
+                let (_, plan) = memz::import::plan_bundle(&cat, &cap, &mut store, bundle)?;
+                memz::import::report(&client.namespace, &plan, "dry_run")
+            };
+            println!("{report}");
         }
         "call" | "mcp" | "capture" | "assert-relation" => {
             if args.get(1).map(String::as_str) != Some("--client") {

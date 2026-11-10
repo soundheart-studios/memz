@@ -97,13 +97,29 @@ pub fn plan_bundle(
     }
     let bundle = crate::interop::map_namespace(bundle, &store.namespace)?;
     let tx = store.conn.transaction()?;
-    let now = crate::capture::now();
-    let (held, unavailable) = crate::interop::holdings(&tx, &store.namespace, cap.session(), now)?;
+    let plan = plan_with(
+        &tx,
+        &store.namespace,
+        cap.session(),
+        &bundle,
+        crate::capture::now(),
+    )?;
     drop(tx);
-    let support = amx::Support::new(&["project", "session"], &[]);
-    let mut plan = amx::plan_import(&bundle, &held, &support);
-    crate::interop::restrict(&mut plan, cap.session(), &unavailable, now);
     Ok((bundle, plan))
+}
+
+fn plan_with(
+    tx: &rusqlite::Transaction<'_>,
+    namespace: &str,
+    session: &str,
+    bundle: &amx::Bundle,
+    now: i64,
+) -> Result<amx::ImportPlan> {
+    let (held, unavailable) = crate::interop::holdings(tx, namespace, session, now)?;
+    let support = amx::Support::new(&["project", "session"], &[]);
+    let mut plan = amx::plan_import(bundle, &held, &support);
+    crate::interop::restrict(&mut plan, session, &unavailable, now);
+    Ok(plan)
 }
 
 /// A plan as a JSON report: counts, and each conflict with its reason.
@@ -138,4 +154,48 @@ pub fn validate_bundle(
     let bundle = read_bundle(cat, name)?;
     let (_, plan) = plan_bundle(cat, cap, store, bundle)?;
     Ok(report(&store.namespace, &plan, "dry_run"))
+}
+
+/// Import a bundle. Trusted, CLI-only: never exposed as a model tool.
+///
+/// The plan is made again inside the write transaction, so it is exactly
+/// what gets applied. A plan with conflicts writes nothing unless
+/// `skip_conflicts`, in which case only the clean part is applied.
+/// Applying the same bundle twice writes nothing the second time.
+pub fn apply_bundle(
+    cat: &Catalog,
+    cap: &Capability,
+    store: &mut NamespaceStore,
+    bundle: amx::Bundle,
+    skip_conflicts: bool,
+) -> Result<Value> {
+    let _lock =
+        rusqlite::Transaction::new_unchecked(&cat.conn, rusqlite::TransactionBehavior::Immediate)?;
+    cat.authorize(cap, &crate::auth::Scope::project(&store.namespace), true)?;
+    if store.state_path != cat.state.path {
+        return Err(Error::new("denied", "access is not authorized"));
+    }
+    let bundle = crate::interop::map_namespace(bundle, &store.namespace)?;
+    let tx = store
+        .conn
+        .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+    let now = crate::capture::now();
+    let plan = plan_with(&tx, &store.namespace, cap.session(), &bundle, now)?;
+    if !plan.is_clean() && !skip_conflicts {
+        let first = &plan.conflicts[0];
+        return Err(Error::new(
+            "conflict",
+            format!(
+                "{} conflicting items (first: {} {} revision {}: {}); nothing was imported. Skip them explicitly to import the rest.",
+                plan.conflicts.len(),
+                first.item.kind,
+                first.item.id,
+                first.item.revision,
+                first.reason
+            ),
+        ));
+    }
+    crate::interop::apply(&tx, &plan, cap.principal(), cap.revision(), now)?;
+    tx.commit()?;
+    Ok(report(&store.namespace, &plan, "applied"))
 }

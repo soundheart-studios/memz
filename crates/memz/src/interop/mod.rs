@@ -71,6 +71,17 @@ impl Clock {
     }
 }
 
+/// Kinds Memz stores.
+pub const KINDS: &[&str] = &[
+    "fact",
+    "preference",
+    "decision",
+    "procedure",
+    "task",
+    "incident",
+    "entity",
+];
+
 const VISIBLE: &str = "(visibility='project' OR (visibility='session' AND session_id=?1))";
 
 /// What a record needs from its own source row: origin, author, event,
@@ -350,6 +361,33 @@ pub fn bundle(
             tombstones.push(base);
         }
     }
+    // Deleted sources no item cites: deletions imported for passages this
+    // store never held. They stay so a later import cannot bring them back.
+    {
+        let mut stmt = tx.prepare(&format!("SELECT s.id,s.visibility,s.session_id,s.ingested_at FROM sources s WHERE s.status='deleted' AND {VISIBLE} AND NOT EXISTS(SELECT 1 FROM items i WHERE i.source_id=s.id) ORDER BY s.id"))?;
+        let mut rows = stmt.query(params![session])?;
+        while let Some(r) = rows.next()? {
+            let source: String = r.get(0)?;
+            let visibility: String = r.get(1)?;
+            let session_id: String = r.get(2)?;
+            tombstones.push(Tombstone {
+                amx: VERSION.into(),
+                id: format!("del-{source}"),
+                target_type: "source".into(),
+                target_id: source,
+                scope: scope(namespace, &visibility, &session_id),
+                deleted_at: clock.see(r.get::<_, i64>(3)?),
+                reason: "user_request".into(),
+                actor: "memz".into(),
+                derived: None,
+                attributes: None,
+                extra: Default::default(),
+            });
+        }
+    }
+
+    tombstones.sort_by(|a, b| a.id.cmp(&b.id));
+    tombstones.dedup_by(|a, b| a.id == b.id);
 
     let mut bundle = Bundle::new(
         &format!("memz-{cursor}"),
@@ -488,7 +526,15 @@ pub fn restrict(
         {
             return Some("expired content is not imported".into());
         }
-        None
+        match item {
+            amx::Item::Record(r) if !KINDS.contains(&r.kind.as_str()) => {
+                Some(format!("Memz cannot store kind {:?}", r.kind))
+            }
+            amx::Item::Link(l) if !crate::graph::RELATIONS.contains(&l.relation.as_str()) => {
+                Some(format!("Memz cannot store relation {:?}", l.relation))
+            }
+            _ => None,
+        }
     };
     for list in [&mut plan.adds, &mut plan.supersedes] {
         list.retain(|item| match reason(item) {
@@ -540,4 +586,332 @@ pub fn restrict(
         !foreign
     });
     plan.conflicts.extend(conflicts);
+}
+
+fn at(text: &str) -> Result<i64> {
+    amx::parse_timestamp(text)
+        .ok_or_else(|| Error::new("invalid_bundle", format!("bad timestamp {text:?}")))
+}
+
+fn optional_at(text: Option<&String>) -> Result<Option<i64>> {
+    text.map(|t| at(t)).transpose()
+}
+
+fn visibility_of(scope: &Scope) -> (&str, String) {
+    (
+        scope.visibility.as_str(),
+        if scope.visibility == "session" {
+            scope.session.clone().unwrap_or_default()
+        } else {
+            String::new()
+        },
+    )
+}
+
+/// A stable synthetic identifier, so re-importing the same bundle derives
+/// the same rows.
+fn synthetic(label: &str, id: &str) -> String {
+    crate::capture::digest(format!("amx:{label}:{id}").as_bytes())[..32].to_string()
+}
+
+fn source_text(tx: &Transaction<'_>, id: &str, revision: i64) -> Result<Option<String>> {
+    use rusqlite::OptionalExtension;
+    Ok(tx
+        .query_row(
+            "SELECT text FROM sources WHERE id=?1 AND revision=?2 AND status<>'deleted'",
+            params![id, revision],
+            |r| r.get(0),
+        )
+        .optional()?)
+}
+
+fn supersede_older_sources(tx: &Transaction<'_>, id: &str) -> Result<()> {
+    tx.execute(
+        "UPDATE sources SET status='superseded' WHERE id=?1 AND status='active' AND revision<(SELECT max(revision) FROM sources WHERE id=?1)",
+        [id],
+    )?;
+    Ok(())
+}
+
+/// Delete an item the way `forget` does (its current source revision is the
+/// durable marker), or, when the store never held it, leave a content-free
+/// placeholder so the deletion survives and later imports stay refused.
+fn delete_item(tx: &Transaction<'_>, id: &str, scope: &Scope, deleted_at: i64) -> Result<()> {
+    use rusqlite::OptionalExtension;
+    let current: Option<(i64, String, i64)> = tx
+        .query_row(
+            "SELECT revision,source_id,source_revision FROM items WHERE id=?1 ORDER BY revision DESC LIMIT 1",
+            [id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .optional()?;
+    match current {
+        Some((revision, source, source_revision)) => {
+            tx.execute(
+                "UPDATE sources SET status='deleted' WHERE id=?1 AND revision=?2",
+                params![source, source_revision],
+            )?;
+            tx.execute(
+                "UPDATE items SET status='deleted',valid_to=coalesce(valid_to,?3) WHERE id=?1 AND revision=?2",
+                params![id, revision, deleted_at],
+            )?;
+            tx.execute("DELETE FROM memory_fts WHERE item_id=?1", [id])?;
+            tx.execute(
+                "UPDATE operations SET tombstone=1,payload_digest='',result_json='{}' WHERE item_id=?1",
+                [id],
+            )?;
+        }
+        None => {
+            let (visibility, session) = visibility_of(scope);
+            let source = synthetic("tombstone", id);
+            tx.execute("INSERT OR IGNORE INTO sources(id,revision,origin,author,text,content_hash,event_at,ingested_at,visibility,session_id,status,retention,expires_at) VALUES(?1,1,'import','memz','','',NULL,?2,?3,?4,'deleted','durable',NULL)",params![source,deleted_at,visibility,session])?;
+            tx.execute("INSERT INTO items(id,revision,kind,content,explicit,status,source_id,source_revision,visibility,session_id,valid_from,valid_to,slot) VALUES(?1,1,'fact','',0,'deleted',?2,1,?3,?4,?5,?5,NULL)",params![id,source,visibility,session,deleted_at])?;
+        }
+    }
+    Ok(())
+}
+
+fn delete_source(tx: &Transaction<'_>, id: &str, scope: &Scope, deleted_at: i64) -> Result<()> {
+    let changed = tx.execute(
+        "UPDATE sources SET status='deleted' WHERE id=?1 AND revision=(SELECT max(revision) FROM sources WHERE id=?1)",
+        [id],
+    )?;
+    if changed == 0 {
+        let (visibility, session) = visibility_of(scope);
+        tx.execute("INSERT INTO sources(id,revision,origin,author,text,content_hash,event_at,ingested_at,visibility,session_id,status,retention,expires_at) VALUES(?1,1,'import','memz','','',NULL,?2,?3,?4,'deleted','durable',NULL)",params![id,deleted_at,visibility,session])?;
+    } else {
+        tx.execute(
+            "DELETE FROM memory_fts WHERE item_id IN (SELECT id FROM items WHERE source_id=?1)",
+            [id],
+        )?;
+    }
+    Ok(())
+}
+
+fn insert_source(tx: &Transaction<'_>, s: &Source) -> Result<()> {
+    let (visibility, session) = visibility_of(&s.scope);
+    let expires_at = optional_at(s.expires_at.as_ref())?;
+    let hash = s
+        .content_hash
+        .strip_prefix("sha256:")
+        .unwrap_or(&s.content_hash);
+    tx.execute("INSERT INTO sources(id,revision,origin,author,external_ref,text,content_hash,event_at,ingested_at,visibility,session_id,status,retention,expires_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,'active',?12,?13)",params![s.id,s.revision as i64,origin_from_amx(&s.origin),s.author,s.external_ref,s.text,hash,optional_at(s.event_at.as_ref())?,at(&s.recorded_at)?,visibility,session,if expires_at.is_some(){"temporary"}else{"durable"},expires_at])?;
+    Ok(())
+}
+
+fn insert_evidence(
+    tx: &Transaction<'_>,
+    owner: (&str, &str, i64),
+    evidence: &[Evidence],
+    provenance: &Provenance,
+) -> Result<usize> {
+    let (column, id, revision) = owner;
+    let method = provenance.method.as_deref().unwrap_or("import");
+    let version = provenance.method_version.as_deref().unwrap_or("1");
+    let mut written = 0;
+    for e in evidence {
+        if source_text(tx, &e.source, e.source_revision as i64)?.is_none() {
+            continue;
+        }
+        let (start, end) = match e.span {
+            Some([s, e]) => (Some(s as i64), Some(e as i64)),
+            None => (None, None),
+        };
+        tx.execute(&format!("INSERT INTO evidence({column}_id,{column}_revision,source_id,source_revision,span_start,span_end,role,method,method_version) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9)"),params![id,revision,e.source,e.source_revision as i64,start,end,e.role,method,version])?;
+        written += 1;
+    }
+    Ok(written)
+}
+
+fn insert_record(
+    tx: &Transaction<'_>,
+    r: &Record,
+    principal: &str,
+    capability_revision: i64,
+    now: i64,
+) -> Result<()> {
+    let (visibility, session) = visibility_of(&r.scope);
+    let revision = r.revision as i64;
+    let evidence = r.evidence.as_deref().unwrap_or_default();
+    // Memz keeps each memory's own passage as its source. Use the first
+    // evidence passage when it is exactly the content; otherwise keep the
+    // content as a synthetic source of its own.
+    let own = match evidence.first() {
+        Some(e)
+            if source_text(tx, &e.source, e.source_revision as i64)?.as_deref()
+                == Some(r.content.as_str()) =>
+        {
+            (e.source.clone(), e.source_revision as i64, false)
+        }
+        _ => (synthetic("source", &r.id), revision, true),
+    };
+    if own.2 && source_text(tx, &own.0, own.1)?.is_none() {
+        let expires_at = optional_at(r.expires_at.as_ref())?;
+        tx.execute("INSERT INTO sources(id,revision,origin,author,text,content_hash,event_at,ingested_at,visibility,session_id,status,retention,expires_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,'active',?11,?12)",params![own.0,own.1,origin_from_amx(&r.provenance.origin),r.provenance.author,r.content,crate::capture::digest(r.content.as_bytes()),optional_at(r.event_at.as_ref())?,at(&r.recorded_at)?,visibility,session,if expires_at.is_some(){"temporary"}else{"durable"},expires_at])?;
+        supersede_older_sources(tx, &own.0)?;
+    }
+    let valid_from = at(&r.valid_from)?;
+    if r.status == "active" {
+        tx.execute(
+            "UPDATE items SET status='superseded',valid_to=coalesce(valid_to,?2) WHERE id=?1 AND status='active'",
+            params![r.id, valid_from],
+        )?;
+    }
+    tx.execute("INSERT INTO items(id,revision,kind,content,explicit,status,source_id,source_revision,visibility,session_id,valid_from,valid_to,slot) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13)",params![r.id,revision,r.kind,r.content,r.provenance.explicit,r.status,own.0,own.1,visibility,session,valid_from,optional_at(r.valid_to.as_ref())?,r.key])?;
+    let written = insert_evidence(tx, ("item", &r.id, revision), evidence, &r.provenance)?;
+    if own.2 || written == 0 {
+        let own_evidence = Evidence {
+            source: own.0.clone(),
+            source_revision: own.1 as u64,
+            span: Some([0, r.content.len() as u64]),
+            role: "supports".into(),
+            extra: Default::default(),
+        };
+        insert_evidence(
+            tx,
+            ("item", &r.id, revision),
+            &[own_evidence],
+            &r.provenance,
+        )?;
+    }
+    if r.status == "active" {
+        tx.execute(
+            "INSERT INTO memory_fts(item_id,revision,content) VALUES(?1,?2,?3)",
+            params![r.id, revision, r.content],
+        )?;
+        let job = crate::capture::id()?;
+        tx.execute("INSERT INTO jobs(id,operation_key,source_id,source_revision,job_type,version,state,next_attempt,resource_bytes,principal,capability_revision) VALUES(?1,?1,?2,?3,'enrich',1,'pending',?4,?5,?6,?7)",params![job,own.0,own.1,now,r.content.len() as i64,principal,capability_revision])?;
+    }
+    Ok(())
+}
+
+fn insert_link(tx: &Transaction<'_>, l: &Link) -> Result<()> {
+    let (visibility, session) = visibility_of(&l.scope);
+    let qualifiers: BTreeMap<String, String> = l
+        .qualifiers
+        .iter()
+        .flatten()
+        .map(|(k, v)| {
+            let text = v.as_str().map_or_else(|| v.to_string(), String::from);
+            (k.clone(), text)
+        })
+        .collect();
+    let qualifiers = serde_json::to_string(&qualifiers)
+        .map_err(|_| Error::new("serialization", "qualifiers"))?;
+    let valid_from = at(&l.valid_from)?;
+    if l.status == "active" {
+        tx.execute(
+            "UPDATE edges SET status='superseded',valid_to=coalesce(valid_to,?2) WHERE id=?1 AND status='active'",
+            params![l.id, valid_from],
+        )?;
+    }
+    let revision = l.revision as i64;
+    tx.execute("INSERT INTO edges(id,revision,from_id,from_revision,to_id,to_revision,relation,qualifiers,explicit,status,visibility,session_id,valid_from,valid_to) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14)",params![l.id,revision,l.from.id,l.from.revision as i64,l.to.id,l.to.revision as i64,l.relation,qualifiers,l.provenance.explicit,l.status,visibility,session,valid_from,optional_at(l.valid_to.as_ref())?])?;
+    insert_evidence(
+        tx,
+        ("edge", &l.id, revision),
+        l.evidence.as_deref().unwrap_or_default(),
+        &l.provenance,
+    )?;
+    Ok(())
+}
+
+/// Apply a plan inside the caller's write transaction: deletions first,
+/// then sources, records and links. Returns whether anything was written.
+pub fn apply(
+    tx: &Transaction<'_>,
+    plan: &amx::ImportPlan,
+    principal: &str,
+    capability_revision: i64,
+    now: i64,
+) -> Result<bool> {
+    let (quota_bytes, quota_records): (i64, i64) = tx.query_row(
+        "SELECT quota_bytes,quota_records FROM namespace_meta WHERE singleton=1",
+        [],
+        |r| Ok((r.get(0)?, r.get(1)?)),
+    )?;
+    let (bytes, count): (i64, i64) = tx.query_row(
+        "SELECT coalesce(sum(length(CAST(text AS BLOB))),0),count(*) FROM sources WHERE status<>'deleted'",
+        [],
+        |r| Ok((r.get(0)?, r.get(1)?)),
+    )?;
+    let incoming: i64 = plan
+        .adds
+        .iter()
+        .chain(&plan.supersedes)
+        .map(|item| match item {
+            amx::Item::Source(s) => s.text.len() as i64,
+            amx::Item::Record(r) => r.content.len() as i64,
+            amx::Item::Link(_) => 0,
+        })
+        .sum();
+    let new_rows = (plan.adds.len() + plan.supersedes.len()) as i64;
+    if bytes.saturating_add(incoming) > quota_bytes
+        || count.saturating_add(new_rows) > quota_records
+    {
+        return Err(Error::new("quota", "namespace admission limit reached"));
+    }
+
+    for t in &plan.tombstones {
+        let deleted_at = at(&t.deleted_at)?;
+        match t.target_type.as_str() {
+            "record" => delete_item(tx, &t.target_id, &t.scope, deleted_at)?,
+            "source" => delete_source(tx, &t.target_id, &t.scope, deleted_at)?,
+            _ => {
+                tx.execute(
+                    "UPDATE edges SET status='deleted',valid_to=coalesce(valid_to,?2) WHERE id=?1",
+                    params![t.target_id, deleted_at],
+                )?;
+            }
+        }
+        for derived in t.derived.iter().flatten() {
+            let held: bool = tx.query_row(
+                "SELECT EXISTS(SELECT 1 FROM items WHERE id=?1)",
+                [derived],
+                |r| r.get(0),
+            )?;
+            if held {
+                delete_item(tx, derived, &t.scope, deleted_at)?;
+            }
+            tx.execute(
+                "UPDATE edges SET status='deleted',valid_to=coalesce(valid_to,?2) WHERE id=?1",
+                params![derived, deleted_at],
+            )?;
+        }
+    }
+    let items: Vec<&amx::Item> = plan.adds.iter().chain(&plan.supersedes).collect();
+    let mut touched = BTreeSet::new();
+    for item in &items {
+        if let amx::Item::Source(s) = item {
+            insert_source(tx, s)?;
+            touched.insert(s.id.clone());
+        }
+    }
+    for id in &touched {
+        supersede_older_sources(tx, id)?;
+    }
+    let mut records: Vec<&Record> = items
+        .iter()
+        .filter_map(|i| match i {
+            amx::Item::Record(r) => Some(r),
+            _ => None,
+        })
+        .collect();
+    records.sort_by(|a, b| (&a.id, a.revision).cmp(&(&b.id, b.revision)));
+    for r in records {
+        insert_record(tx, r, principal, capability_revision, now)?;
+    }
+    for item in &items {
+        if let amx::Item::Link(l) = item {
+            insert_link(tx, l)?;
+        }
+    }
+    let wrote = !plan.tombstones.is_empty() || !items.is_empty();
+    if wrote {
+        tx.execute(
+            "UPDATE namespace_meta SET mutation_seq=mutation_seq+1 WHERE singleton=1",
+            [],
+        )?;
+    }
+    Ok(wrote)
 }
