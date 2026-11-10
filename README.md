@@ -44,6 +44,10 @@ model downloads.
 - **Observable degradation.** When embeddings are cold, busy or missing, recall
   says so (`"degraded": ["semantic_unavailable"]`) and falls back to lexical
   results.
+- **Portable, open format.** Memory isn't locked in. Exports include an
+  [AMX](docs/amx-format.md) bundle: an open, checksummed format for agent memory
+  that carries provenance, revisions and deletions, so other tools can read it
+  and nothing you forgot comes back on import.
 
 ## Quick start
 
@@ -195,7 +199,8 @@ lexical results with whatever embeddings are ready. See
 - **Portable memory**: every export also writes an [AMX](docs/amx.md) bundle
   (`<name>.amx`), an open, verifiable format other tools can read. `validate_import`
   previews importing one; `memz import` (CLI only) applies it without ever bringing
-  back forgotten memories. See [AMX](docs/amx.md).
+  back forgotten memories. See [AMX in Memz](docs/amx.md) for how, and
+  [the AMX format](docs/amx-format.md) for what it is and why.
 - **Forgetting** stops live retrieval immediately and schedules logical cleanup.
   It does **not** guarantee secure erasure of disk bytes or of existing exports and
   backups, so don't store secrets in memory.
@@ -249,7 +254,8 @@ false positives and negatives. It is not a general accuracy rate.
 | [Relationships](docs/graph.md) | Evidence-backed edges, authority, graph recall, impact preview |
 | [Recovery](docs/recovery.md) | Backup, restore, relocation, retained copies |
 | [Viewer](docs/viewer.md) | Static HTML/Markdown/JSONL exports |
-| [AMX](docs/amx.md) | Portable memory bundles: export, validate, CLI import, conformance |
+| [The AMX format](docs/amx-format.md) | What AMX is, why it exists, how it differs from other memory formats |
+| [AMX in Memz](docs/amx.md) | Portable memory bundles: export, validate, CLI import, conformance |
 | [Platforms](docs/platforms.md) | Supported targets, CI, local cross-platform checks, Windows inventory |
 | [Qualification](docs/qualification.md) | Measurement protocol and results |
 | [Release evidence](docs/release-evidence.md) | What was validated, what remains bounded |

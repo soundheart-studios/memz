@@ -5,6 +5,8 @@ agent memory. It is drafted in this repository: the specification is
 [`spec/amx/SPEC.md`](../spec/amx/SPEC.md), the JSON Schemas are in
 [`spec/amx/schema/`](../spec/amx/schema), and the reference library is the `amx`
 crate in [`crates/amx`](../crates/amx). Memz is the first store that speaks it.
+This page is the Memz how-to; for what AMX is, why it exists and how it
+differs from other formats, read [The AMX format](amx-format.md).
 
 AMX fixes the records (memories, source passages, links, tombstones) and the
 operations (remember, recall, correct, forget, change feed, export, import). It
