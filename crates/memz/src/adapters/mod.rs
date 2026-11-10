@@ -524,6 +524,7 @@ pub fn mcp(state: &StateRoot, client: &Client, request: &Value) -> Value {
                     "slot",
                     "name",
                     "jsonl",
+                    "bundle",
                     "relationship",
                     "graph",
                     "relations",
