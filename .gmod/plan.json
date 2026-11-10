@@ -16,7 +16,8 @@
     "memz-amx-import": "PW_RUN_ID=gmod-check cargo test -p memz --all-features --locked --test amx_import && cargo clippy -p memz --all-targets --all-features --locked -- -D warnings",
     "memz-adapter-parity": "PW_RUN_ID=gmod-check cargo test -p memz --all-features --locked --test adapter_parity",
     "memz-amx-conformance": "PW_RUN_ID=gmod-check cargo test -p memz --all-features --locked --test amx_conformance && cargo clippy -p memz --all-targets --all-features --locked -- -D warnings",
-    "amx-docs": "test -s docs/amx.md && for w in export validate import conformance; do grep -qi \"$w\" docs/amx.md || exit 1; done && grep -q 'docs/amx.md' README.md"
+    "amx-docs": "test -s docs/amx.md && for w in export validate import conformance; do grep -qi \"$w\" docs/amx.md || exit 1; done && grep -q 'docs/amx.md' README.md",
+    "amx-mcp": "PW_RUN_ID=gmod-check cargo test -p memz --locked --test amx_mcp"
   },
   "jobs": [
     {
@@ -319,6 +320,24 @@
           "check": "amx-docs"
         }
       ]
+    },
+    {
+      "id": "memz-amx-mcp-bundle",
+      "goal": "Let the MCP validate_import tool accept a bundle name",
+      "brief": "memz-amx-validate added `bundle` to the validate_import schema and handler but not to the tools/call argument allowlist in crates/memz/src/adapters/mod.rs, so every MCP call with `bundle` fails with -32602 invalid tool arguments. Add it to the allowlist and cover it with a test that goes through MCP tools/call (not the direct handler): a valid bundle name gives a dry-run report, and a name like ../etc is still refused as invalid_filename.",
+      "files": [
+        "crates/memz/src/adapters/mod.rs"
+      ],
+      "tests": [
+        "crates/memz/tests/amx_mcp.rs"
+      ],
+      "done_when": [
+        {
+          "text": "validate_import over MCP tools/call with {bundle} returns a dry-run report and still refuses path-like names",
+          "check": "amx-mcp"
+        }
+      ],
+      "phase": "memz"
     }
   ],
   "phases": [
