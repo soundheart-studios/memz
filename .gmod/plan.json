@@ -17,7 +17,8 @@
     "memz-adapter-parity": "PW_RUN_ID=gmod-check cargo test -p memz --all-features --locked --test adapter_parity",
     "memz-amx-conformance": "PW_RUN_ID=gmod-check cargo test -p memz --all-features --locked --test amx_conformance && cargo clippy -p memz --all-targets --all-features --locked -- -D warnings",
     "amx-docs": "test -s docs/amx.md && for w in export validate import conformance; do grep -qi \"$w\" docs/amx.md || exit 1; done && grep -q 'docs/amx.md' README.md",
-    "amx-mcp": "PW_RUN_ID=gmod-check cargo test -p memz --locked --test amx_mcp"
+    "amx-mcp": "PW_RUN_ID=gmod-check cargo test -p memz --locked --test amx_mcp",
+    "amx-format-doc": "f=docs/amx-format.md; test -s $f && for h in '## Why' '## What' 'differ' 'Portable Memory' 'OMPI' 'COGX' 'tombstone' 'fail' 'provenance' 'revision'; do grep -qi \"$h\" $f || { echo \"missing: $h\"; exit 1; }; done && grep -q 'docs/amx-format.md' README.md && grep -q 'amx-format.md' docs/amx.md && for l in $(grep -o '](\\.\\./[^)#]*' $f | cut -c3-) $(grep -o '](\\./[^)#]*' $f | cut -c3-); do test -e \"docs/$l\" || { echo \"broken link: $l\"; exit 1; }; done"
   },
   "jobs": [
     {
@@ -338,6 +339,24 @@
         }
       ],
       "phase": "memz"
+    },
+    {
+      "id": "amx-format-doc",
+      "phase": "memz",
+      "goal": "Explain AMX: what it is, why, and how it differs",
+      "brief": "New docs/amx-format.md, a guide to the format for readers who won't read SPEC.md: the problem (memory locked in each tool), what an AMX bundle and record look like (a worked example), the nine principles and the reasoning behind each design choice (deletion, fail-closed scope, provenance, revisions, Markdown as a view, signals not truth, secrets), how it compares with Portable Memory (.mem), OMPI, COGX and the LoreKit proposal (facts as researched, cited), what it deliberately leaves out, and where it stands (draft, Memz as first implementation, next steps). README: say what AMX is in Why Memz, point the AMX row and the Backups/exports bullet at the new guide. docs/amx.md links to it. Avoid README's 'What memz init does' section, which has uncommitted local edits. No code changes.",
+      "files": [
+        "docs/amx-format.md",
+        "docs/amx.md",
+        "README.md"
+      ],
+      "tests": [],
+      "done_when": [
+        {
+          "text": "docs/amx-format.md explains what AMX is, why it exists, how it differs from other formats and why it was designed this way, its relative links resolve, and README and docs/amx.md link to it",
+          "check": "amx-format-doc"
+        }
+      ]
     }
   ],
   "phases": [
