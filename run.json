@@ -1,0 +1,9 @@
+{
+  "job": "amx-format-doc",
+  "pass": true,
+  "failing": [],
+  "checks": "1fc7178708c55453",
+  "by": "dev@soundheart.io",
+  "at": "2026-11-10T03:17:57.133Z",
+  "head": "07c8a5ebad5a80478ec4a80f2912ad9a03d75f40"
+}
